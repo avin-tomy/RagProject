@@ -11,7 +11,6 @@ import {
     requireEnv,
     EMBEDDING_DIMENSION,
     INDEX_METRIC,
-    createChatModel,
     createExtractionModel,
 } from './config.js';
 import { chunkPages, cleanPageText, isTableOfContents, CHUNK_SIZE } from './chunking.js';

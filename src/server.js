@@ -25,6 +25,7 @@ import {
 } from './config.js';
 import { PineconeStore } from '@langchain/pinecone';
 import { createChatSession } from './query.js';
+import { indexing } from './indexing.js';
 import * as graph from './graph.js';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
