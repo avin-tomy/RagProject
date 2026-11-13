@@ -37,13 +37,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 const app = express();
-app.use(cors({
-    origin: (origin, cb) => {
-        if (!origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
-        cb(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 
 const storage = multer.diskStorage({
