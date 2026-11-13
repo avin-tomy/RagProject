@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment variables (copy .env.example to .env)
+.env
+.env.*
+!.env.example
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Build output
+frontend/dist/
+dist/
+coverage/
+
+# Uncomment to avoid committing the source PDF (large / copyrighted)
+# Node.pdf
+uploads/

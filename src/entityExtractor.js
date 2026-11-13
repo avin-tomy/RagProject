@@ -1,0 +1,47 @@
+import { createExtractionModel } from './config.js';
+import { withRetry } from './retry.js';
+
+const EXTRACTION_PROMPT = `You are an information extraction engine. Given a passage from a document, extract all named entities and their relationships.
+
+Return a JSON object with this shape:
+{
+  "entities": [
+    { "name": "...", "type": "...", "description": "..." }
+  ],
+  "relations": [
+    { "from": "entity name", "fromType": "entity type", "to": "entity name", "toType": "entity type", "type": "RELATION_LABEL", "evidence": "short supporting phrase" }
+  ]
+}
+
+Rules:
+- Entity types are free-form (Concept, Person, Equation, Figure, Chapter, Algorithm, Organization, Location, Date, Variable, etc.). Use whatever fits.
+- Relation types are free-form uppercase labels (DEFINES, USES, PREREQUISITE, BUILDS_ON, CONTRADICTS, PART_OF, MENTIONS, etc.).
+- Only extract entities actually present in the passage. Do not invent.
+- Keep names concise and consistent (e.g. "Node.js" not "Node JS").
+- If nothing meaningful, return {"entities":[],"relations":[]}.
+
+Passage:
+`;
+
+export async function extractEntities(chunkText, model) {
+    const m = model || createExtractionModel();
+    const text = (chunkText || '').slice(0, 2000);
+    const result = await withRetry(
+        async () => {
+            const res = await m.invoke(EXTRACTION_PROMPT + text);
+            const raw = typeof res.content === 'string' ? res.content : (Array.isArray(res.content) ? res.content.map(c => c.text || c).join('') : String(res.content));
+            const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+            return JSON.parse(cleaned);
+        },
+        { label: 'Entity extraction', maxAttempts: 2, baseDelayMs: 500 }
+    );
+    if (!result.ok) {
+        console.warn('Entity extraction failed:', result.message);
+        return { entities: [], relations: [] };
+    }
+    const data = result.value || {};
+    return {
+        entities: Array.isArray(data.entities) ? data.entities : [],
+        relations: Array.isArray(data.relations) ? data.relations : [],
+    };
+}

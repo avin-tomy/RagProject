@@ -1,0 +1,112 @@
+import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { useAuth } from '../context/AuthContext';
+
+const API = '';
+
+export default function ChatPanel({ pdfs = [] }) {
+  const { authFetch } = useAuth();
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' },
+  ]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const endRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
+
+  const send = async (e) => {
+    e?.preventDefault();
+    const q = input.trim();
+    if (!q || busy) return;
+    setInput('');
+    setError('');
+    const next = [...messages, { role: 'user', content: q }];
+    setMessages(next);
+    setBusy(true);
+    try {
+      const res = await authFetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, history: next.slice(0, -1) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Query failed');
+      setMessages(data.history || [...next, { role: 'assistant', content: data.answer }]);
+    } catch (err) {
+      setError(err.message);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {pdfs.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <select
+            value=""
+            onChange={() => {}}
+            style={{
+              width: '100%', padding: '8px 10px', borderRadius: 8,
+              border: '1px solid var(--card-border)', background: 'rgba(0,0,0,0.25)',
+              color: 'var(--text)', fontSize: 13,
+            }}
+          >
+            <option value="">All indexed documents</option>
+            {pdfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            marginBottom: 12,
+            display: 'flex',
+            justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+          }}>
+            <div className="md" style={{
+              maxWidth: '82%',
+              padding: '10px 14px',
+              borderRadius: 12,
+              background: m.role === 'user' ? 'var(--accent)' : '#f3f4f6',
+              border: m.role === 'user' ? 'none' : '1px solid var(--card-border)',
+              color: m.role === 'user' ? '#fff' : 'var(--text)',
+              fontSize: 14,
+              lineHeight: 1.5,
+            }}>
+              {m.role === 'user'
+                ? m.content
+                : <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>}
+            </div>
+          </div>
+        ))}
+        {busy && <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Thinking…</div>}
+        <div ref={endRef} />
+      </div>
+
+      {error && <div className="alert error" style={{ marginTop: 8 }}>{error}</div>}
+
+      <form onSubmit={send} style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Ask a question about your PDFs…"
+          disabled={busy}
+          style={{
+            flex: 1, padding: '12px 14px', borderRadius: 10,
+            border: '1px solid var(--card-border)', background: 'rgba(0,0,0,0.25)',
+            color: 'var(--text)', fontSize: 15, outline: 'none',
+          }}
+        />
+        <button className="btn" type="submit" disabled={busy || !input.trim()} style={{ width: 'auto', padding: '12px 20px' }}>
+          Send
+        </button>
+      </form>
+    </div>
+  );
+}
