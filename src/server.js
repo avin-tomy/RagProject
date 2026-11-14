@@ -14,6 +14,7 @@ import { User } from './models/User.js';
 import { Pdf } from './models/Pdf.js';
 import { authMiddleware } from './middleware/auth.js';
 import { generateIndexName } from './utils/indexName.js';
+import { matchDocument } from './utils/documentMatcher.js';
 import {
     createEmbeddingModel,
     createChatModel,
@@ -371,7 +372,7 @@ app.post('/api/query', authMiddleware, async (req, res) => {
         const vectorStore = await PineconeStore.fromExistingIndex(embeddingModel, { pineconeIndex });
 
         const agentic = process.env.AGENTIC_RAG === 'true';
-        const documentFilter = Array.isArray(documentIds) && documentIds.length
+        let documentFilter = Array.isArray(documentIds) && documentIds.length
             ? { documentId: { $in: documentIds } }
             : null;
 
@@ -384,6 +385,26 @@ app.post('/api/query', authMiddleware, async (req, res) => {
             });
         }
         const documents = userPdfs.map((p) => ({ name: p.originalName, documentId: p._id.toString() }));
+
+        // If the user mentioned a document name, try to match it.
+        let suggestion = null;
+        if (!Array.isArray(documentIds) || documentIds.length === 0) {
+            const match = matchDocument(question, documents);
+            if (match.matched) {
+                // Auto-filter to the matched document.
+                documentFilter = { documentId: { $eq: match.matched.documentId } };
+            } else if (match.suggestion) {
+                suggestion = match.suggestion;
+            }
+        }
+
+        if (suggestion) {
+            const answer = suggestion;
+            return res.json({
+                answer,
+                history: [...history, { role: 'user', content: question }, { role: 'assistant', content: answer }],
+            });
+        }
 
         const session = createChatSession({
             vectorStore, model, rewriteModel, scoreThreshold,
