@@ -44,6 +44,19 @@ export default function Dashboard() {
   }, [pdfs, loadPdfs]);
 
   const handleUpload = useCallback((file) => {
+    const tempId = `tmp-${Date.now()}`;
+    const entry = {
+      id: tempId,
+      name: file.name,
+      size: formatSize(file.size),
+      uploadedAt: new Date().toLocaleString(),
+      status: 'uploading',
+      progress: 0,
+      phase: '',
+      graphEnabled: buildGraph,
+    };
+    setPdfs(prev => [entry, ...prev]);
+
     const form = new FormData();
     form.append('file', file);
     form.append('buildGraph', buildGraph ? 'true' : 'false');
@@ -53,38 +66,59 @@ export default function Dashboard() {
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
+        setPdfs(prev => prev.map(x => x.id === tempId ? { ...x, progress: pct } : x));
         setUploading({ name: file.name, progress: pct });
       }
     };
     xhr.onload = () => {
       setUploading(null);
       if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.pdf) {
+            // replace temp entry with server record
+            setPdfs(prev => prev.map(x => x.id === tempId ? { ...data.pdf, id: data.pdf.id || data.pdf._id } : x));
+          }
+        } catch {}
         loadPdfs();
       } else {
+        setPdfs(prev => prev.filter(x => x.id !== tempId));
         let msg = 'Upload failed';
         try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
         alert(msg);
       }
     };
-    xhr.onerror = () => { setUploading(null); alert('Network error'); };
+    xhr.onerror = () => {
+      setUploading(null);
+      setPdfs(prev => prev.filter(x => x.id !== tempId));
+      alert('Network error');
+    };
     setUploading({ name: file.name, progress: 0 });
     xhr.send(form);
   }, [loadPdfs, buildGraph]);
 
   const removePdf = async (id) => {
+    const prev = pdfs;
+    setPdfs(pdfs.filter(p => (p.id || p._id) !== id));
     try {
-      await authFetch(`/api/pdfs/${id}`, { method: 'DELETE' });
-      loadPdfs();
-    } catch (e) { console.error(e); }
+      const res = await authFetch(`/api/pdfs/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove');
+    } catch (e) {
+      setPdfs(prev);
+      alert(e.message || 'Failed to remove PDF');
+    }
   };
 
   const handleBuildGraph = async (id) => {
+    setPdfs(prev => prev.map(p => (p.id || p._id) === id ? { ...p, status: 'indexing', phase: 'graph', progress: 0, graphEnabled: true } : p));
     try {
       const res = await authFetch(`/api/pdfs/${id}/build-graph`, { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) { alert(data.error || 'Failed to start graph build'); return; }
-      loadPdfs();
-    } catch (e) { console.error(e); alert('Network error'); }
+      if (!res.ok) throw new Error(data.error || 'Failed to start graph build');
+    } catch (e) {
+      setPdfs(prev => prev.map(p => (p.id || p._id) === id ? { ...p, status: 'indexed', phase: '', progress: 0, graphEnabled: false } : p));
+      alert(e.message || 'Network error');
+    }
   };
 
   return (
@@ -141,7 +175,7 @@ export default function Dashboard() {
       <div className="panel" style={{ marginTop: 20 }}>
         <h2>Chat</h2>
         <p className="hint">Ask questions about your indexed PDFs.</p>
-        <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name }))} />
+        <ChatPanel />
       </div>
       {confirmLogout && (
         <div style={{

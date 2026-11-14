@@ -41,7 +41,7 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
             }
 
             const context = documents
-                .map((doc) => `[Page ${pageRange(doc) ?? 'unknown'}]\n${doc.pageContent}`)
+                .map((doc) => `[Page ${pageRange(doc) ?? 'unknown'} | ${doc.metadata?.source ?? 'doc'}]\n${doc.pageContent}`)
                 .join('\n\n---\n\n');
 
             return JSON.stringify({ query, context, pages, scoreRange, count: documents.length });

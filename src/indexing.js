@@ -142,15 +142,23 @@ export async function ensurePineconeIndex(pinecone, indexName) {
         `(dimension=${EMBEDDING_DIMENSION}, metric=${INDEX_METRIC}, cloud=${cloud}, region=${region})...`
     );
 
-    await pinecone.createIndex({
-        name: indexName,
-        dimension: EMBEDDING_DIMENSION,
-        metric: INDEX_METRIC,
-        spec: {
-            serverless: { cloud, region },
-        },
-        waitUntilReady: true,
-    });
+    try {
+        await pinecone.createIndex({
+            name: indexName,
+            dimension: EMBEDDING_DIMENSION,
+            metric: INDEX_METRIC,
+            spec: {
+                serverless: { cloud, region },
+            },
+            waitUntilReady: true,
+        });
+    } catch (err) {
+        if (err?.status === 409 || /ALREADY_EXISTS/i.test(err?.message || '')) {
+            console.log('Index created by another request; reusing it.');
+        } else {
+            throw err;
+        }
+    }
 
     console.log(`Index "${indexName}" is ready`);
     const createdIndex = await pinecone.describeIndex(indexName);
@@ -369,7 +377,7 @@ export async function clearIndexVectors(pineconeIndex, existingCount, options = 
     return { ok: false, message: result.message };
 }
 
-export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress, onChunks } = {}) {
+export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress, onChunks, documentId } = {}) {
     const resolvedPdfPath = resolvePdfPath(pdfPath);
     const pdfFileName = path.basename(resolvedPdfPath);
 
@@ -388,7 +396,7 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
 
     console.log('Splitting document into chunks...');
     const { docs: chunkedDocs, tocPagesSkipped } = await buildChunks(rawPages, {
-        metadata: { source: pdfFileName },
+        metadata: { source: pdfFileName, documentId: documentId || '' },
     });
 
     console.log(
@@ -479,16 +487,26 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
         console.warn(`Could not read index stats: ${statsResult.message}`);
     }
 
-    console.log('Clearing existing vectors so reruns do not create duplicates...');
-    const cleared = await clearIndexVectors(pineconeIndex, existingCount, retryOptions);
-    if (!cleared.ok) {
-        throw new Error(`Could not clear the existing index: ${cleared.message}`);
+    // Remove any stale vectors for this document (re-index case) without
+    // wiping other documents in the shared user index.
+    if (documentId) {
+        console.log('Removing stale vectors for this document (if any)...');
+        try {
+            await pineconeIndex.deleteMany({ documentId });
+            console.log('Stale vectors removed');
+        } catch (err) {
+            console.warn('Could not remove stale vectors:', err.message);
+        }
+    } else if (existingCount === 0) {
+        console.log('Index is already empty; nothing to clear');
+    } else {
+        console.log('Clearing existing vectors so reruns do not create duplicates...');
+        const cleared = await clearIndexVectors(pineconeIndex, existingCount, retryOptions);
+        if (!cleared.ok) {
+            throw new Error(`Could not clear the existing index: ${cleared.message}`);
+        }
+        console.log(cleared.cleared ? 'Existing vectors cleared' : 'Index was already empty; nothing to clear');
     }
-    console.log(
-        cleared.cleared
-            ? 'Existing vectors cleared'
-            : 'Index was already empty; nothing to clear'
-    );
 
     const upserted = await upsertBatches(embedded.prepared, vectorStore, retryOptions);
 
@@ -534,6 +552,7 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
         await buildKnowledgeGraph({
             indexName,
             docName: pdfFileName,
+            documentId: documentId || '',
             chunks: graphChunks,
             totalPages,
             onProgress: report,

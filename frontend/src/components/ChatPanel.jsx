@@ -3,9 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
 
-const API = '';
-
-export default function ChatPanel({ pdfs = [] }) {
+export default function ChatPanel() {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' },
@@ -16,6 +14,22 @@ export default function ChatPanel({ pdfs = [] }) {
   const endRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
+
+  const exportChat = () => {
+    const md = messages.map(m => {
+      const role = m.role === 'user' ? '**You**' : '**Assistant**';
+      return `${role}:\n\n${m.content}`;
+    }).join('\n\n---\n\n');
+    const blob = new Blob([`# Chat Export\n\n${md}\n`], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const send = async (e) => {
     e?.preventDefault();
@@ -45,23 +59,11 @@ export default function ChatPanel({ pdfs = [] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {pdfs.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <select
-            value=""
-            onChange={() => {}}
-            style={{
-              width: '100%', padding: '8px 10px', borderRadius: 8,
-              border: '1px solid var(--card-border)', background: 'rgba(0,0,0,0.25)',
-              color: 'var(--text)', fontSize: 13,
-            }}
-          >
-            <option value="">All indexed documents</option>
-            {pdfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-      )}
-
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
+          Export as Markdown
+        </button>
+      </div>
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
         {messages.map((m, i) => (
           <div key={i} style={{

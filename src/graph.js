@@ -45,27 +45,27 @@ export async function clearGraph(indexName) {
     }
 }
 
-export async function upsertDocument(indexName, name, pageCount) {
+export async function upsertDocument(indexName, name, pageCount, documentId) {
     if (!driver) return;
     const session = driver.session();
     try {
         await session.run(
             `MERGE (d:Document {indexName: $indexName, name: $name})
-             SET d.pageCount = $pageCount, d.updatedAt = datetime()`,
-            { indexName, name, pageCount }
+             SET d.pageCount = $pageCount, d.documentId = $documentId, d.updatedAt = datetime()`,
+            { indexName, name, pageCount, documentId: documentId || '' }
         );
     } finally {
         await session.close();
     }
 }
 
-export async function upsertChunk(indexName, docName, chunk) {
+export async function upsertChunk(indexName, docName, chunk, documentId) {
     if (!driver) return;
     const session = driver.session();
     try {
         await session.run(
             `MERGE (c:Chunk {indexName: $indexName, id: $id})
-             SET c.text = $text, c.page = $page, c.pageEnd = $pageEnd, c.index = $idx
+             SET c.text = $text, c.page = $page, c.pageEnd = $pageEnd, c.index = $idx, c.documentId = $documentId
              WITH c
              MATCH (d:Document {indexName: $indexName, name: $docName})
              MERGE (c)-[:PART_OF]->(d)`,
@@ -77,6 +77,7 @@ export async function upsertChunk(indexName, docName, chunk) {
                 pageEnd: chunk.pageEnd ?? null,
                 idx: chunk.index,
                 docName,
+                documentId: documentId || '',
             }
         );
     } finally {
@@ -113,14 +114,14 @@ export async function linkChunkEntity(indexName, chunkId, entityName, entityType
     }
 }
 
-export async function upsertRelation(indexName, rel) {
+export async function upsertRelation(indexName, rel, documentId) {
     if (!driver) return;
     const session = driver.session();
     try {
         await session.run(
             `MATCH (a:Entity {indexName: $indexName, name: $from, type: $fromType})
              MATCH (b:Entity {indexName: $indexName, name: $to, type: $toType})
-             MERGE (a)-[r:RELATES_TO {type: $relType}]->(b)
+             MERGE (a)-[r:RELATES_TO {type: $relType, documentId: $documentId}]->(b)
              SET r.evidence = $evidence`,
             {
                 indexName,
@@ -130,7 +131,34 @@ export async function upsertRelation(indexName, rel) {
                 toType: rel.toType,
                 relType: rel.type,
                 evidence: rel.evidence || '',
+                documentId: documentId || '',
             }
+        );
+    } finally {
+        await session.close();
+    }
+}
+
+export async function clearGraphDocument(indexName, documentId) {
+    if (!driver) return;
+    const session = driver.session();
+    try {
+        // Delete RELATES_TO edges scoped to this document
+        await session.run(
+            `MATCH ()-[r:RELATES_TO {documentId: $documentId}]-() DELETE r`,
+            { documentId }
+        );
+        // Delete chunks (and their MENTIONS edges via DETACH)
+        await session.run(
+            `MATCH (c:Chunk {indexName: $indexName, documentId: $documentId}) DETACH DELETE c`,
+            { indexName, documentId }
+        );
+        // Delete document node if no remaining chunks reference it
+        await session.run(
+            `MATCH (d:Document {indexName: $indexName, documentId: $documentId})
+             WHERE NOT EXISTS { MATCH (c:Chunk {indexName: $indexName, documentId: $documentId}) }
+             DELETE d`,
+            { indexName, documentId }
         );
     } finally {
         await session.close();
@@ -224,7 +252,7 @@ export async function batchLinkChunkEntities(indexName, links) {
     }
 }
 
-export async function batchUpsertRelations(indexName, relations) {
+export async function batchUpsertRelations(indexName, relations, documentId) {
     if (!driver || !relations.length) return;
     const seen = new Set();
     const unique = [];
@@ -258,9 +286,9 @@ export async function batchUpsertRelations(indexName, relations) {
             `UNWIND $rows AS row
              MATCH (a:Entity {indexName: $indexName, name: row.from, type: row.fromType})
              MATCH (b:Entity {indexName: $indexName, name: row.to, type: row.toType})
-             MERGE (a)-[r:RELATES_TO {type: row.type}]->(b)
+             MERGE (a)-[r:RELATES_TO {type: row.type, documentId: $documentId}]->(b)
              SET r.evidence = row.evidence`,
-            { indexName, rows: unique }
+            { indexName, rows: unique, documentId: documentId || '' }
         );
     } finally {
         await session.close();

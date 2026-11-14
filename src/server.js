@@ -156,6 +156,7 @@ app.post('/api/pdfs', authMiddleware, upload.single('file'), async (req, res) =>
                     dryRun: false,
                     indexName: user.pineconeIndexName,
                     buildGraph,
+                    documentId: pdf._id.toString(),
                     onProgress: async (phase, pct) => {
                         await Pdf.findByIdAndUpdate(pdf._id, { phase, progress: pct });
                     },
@@ -244,6 +245,7 @@ app.post('/api/pdfs/:id/build-graph', authMiddleware, async (req, res) => {
                 await buildKnowledgeGraph({
                     indexName: pdf.indexName,
                     docName,
+                    documentId: pdf._id.toString(),
                     chunks: pdf.chunks,
                     totalPages: 0,
                     onProgress: async (phase, pct) => {
@@ -271,17 +273,17 @@ app.delete('/api/pdfs/:id', authMiddleware, async (req, res) => {
         // Remove the stored file from disk.
         try { await fs.promises.unlink(pdf.storedPath); } catch { /* ignore */ }
 
-        // Clear the user's Pinecone index (it holds only this PDF in this design).
+        // Remove this document's vectors from the shared user index.
         try {
             const pinecone = createPineconeClient();
             const pineconeIndex = pinecone.Index(pdf.indexName);
-            await pineconeIndex.deleteAll();
-        } catch { /* ignore - index may not exist */ }
+            await pineconeIndex.deleteMany({ documentId: pdf._id.toString() });
+        } catch { /* ignore */ }
 
-        // Clear the graph for this index.
+        // Remove this document's graph data.
         try {
-            const { clearGraph } = await import('./graph.js');
-            await clearGraph(pdf.indexName);
+            const { clearGraphDocument } = await import('./graph.js');
+            await clearGraphDocument(pdf.indexName, pdf._id.toString());
         } catch { /* ignore */ }
 
         await Pdf.deleteOne({ _id: pdf._id });

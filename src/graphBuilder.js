@@ -13,13 +13,13 @@ import * as graph from './graph.js';
  * @param {number} [opts.concurrency=5]
  * @param {number} [opts.batchSize=3]
  */
-export async function buildKnowledgeGraph({ indexName, docName, chunks, totalPages, onProgress, concurrency, batchSize } = {}) {
+export async function buildKnowledgeGraph({ indexName, docName, documentId, chunks, totalPages, onProgress, concurrency, batchSize } = {}) {
     const report = typeof onProgress === 'function' ? onProgress : () => {};
     if (!graph.getDriver()) {
         throw new Error('Neo4j is not configured');
     }
-    await graph.clearGraph(indexName);
-    await graph.upsertDocument(indexName, docName, totalPages || 0);
+    await graph.clearGraphDocument(indexName, documentId);
+    await graph.upsertDocument(indexName, docName, totalPages || 0, documentId);
 
     const graphChunks = (chunks || []).map((c, i) => ({
         id: `${docName}-${i}`,
@@ -30,7 +30,7 @@ export async function buildKnowledgeGraph({ indexName, docName, chunks, totalPag
     }));
 
     for (const gc of graphChunks) {
-        await graph.upsertChunk(indexName, docName, gc);
+        await graph.upsertChunk(indexName, docName, gc, documentId);
     }
 
     const MIN_CHUNK_LEN = 100;
@@ -116,7 +116,7 @@ ${passages}`;
     console.log('  Writing entities and relations to Neo4j...');
     await graph.batchUpsertEntities(indexName, allEntities);
     await graph.batchLinkChunkEntities(indexName, chunkEntityLinks);
-    await graph.batchUpsertRelations(indexName, allRelations);
+    await graph.batchUpsertRelations(indexName, allRelations, documentId);
 
     console.log(`Graph built: ${totalEntities} entity mentions, ${totalRels} relations (skipped ${graphChunks.length - candidates.length} short chunks).`);
     report('graph', 100);
