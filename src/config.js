@@ -21,8 +21,8 @@ export const CHAT_MODEL = process.env.CHAT_MODEL || (isOpenRouter
     ? 'inclusionai/ling-3.0-flash'
     : 'gemini-3.8-flash');
 
-export const DEFAULT_SCORE_THRESHOLD = 0.5;
-export const DEFAULT_TOP_K = 10;
+export const DEFAULT_SCORE_THRESHOLD = isOpenRouter ? 0.1 : 0.5;
+export const DEFAULT_TOP_K = Number(process.env.TOP_K) || 6;
 export const DEFAULT_MAX_HISTORY_MESSAGES = 10;
 
 export const INDEX_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/;
@@ -80,7 +80,14 @@ export function createEmbeddingModel() {
         return new OpenAIEmbeddings({
             apiKey: requireEnv('OPENROUTER_API_KEY'),
             model: EMBEDDING_MODEL,
-            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+            configuration: {
+                baseURL: 'https://openrouter.ai/api/v1',
+                defaultHeaders: {
+                    'HTTP-Referer': 'https://github.com/avin-tomy/RagProject',
+                    'X-Title': 'RAG Studio',
+                    'X-OpenRouter-Cache': 'true',
+                },
+            },
         });
     }
     return new GoogleGenerativeAIEmbeddings({
@@ -103,7 +110,14 @@ export function createExtractionModel() {
             apiKey: requireEnv('OPENROUTER_API_KEY'),
             model: process.env.EXTRACTION_MODEL?.trim() || CHAT_MODEL,
             temperature: 0,
-            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+            configuration: {
+                baseURL: 'https://openrouter.ai/api/v1',
+                defaultHeaders: {
+                    'HTTP-Referer': 'https://github.com/avin-tomy/RagProject',
+                    'X-Title': 'RAG Studio',
+                    'X-OpenRouter-Cache': 'true',
+                },
+            },
             modelKwargs: { response_format: { type: 'json_object' } },
         });
     }
@@ -122,7 +136,14 @@ function createChatModelWithTemp(temperature) {
             apiKey: requireEnv('OPENROUTER_API_KEY'),
             model: CHAT_MODEL,
             temperature,
-            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+            configuration: {
+                baseURL: 'https://openrouter.ai/api/v1',
+                defaultHeaders: {
+                    'HTTP-Referer': 'https://github.com/avin-tomy/RagProject',
+                    'X-Title': 'RAG Studio',
+                    'X-OpenRouter-Cache': 'true',
+                },
+            },
         });
     }
     return new ChatGoogleGenerativeAI({

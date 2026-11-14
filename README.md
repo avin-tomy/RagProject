@@ -82,7 +82,7 @@ Blank values are treated as unset. `SCORE_THRESHOLD` must be a number between
 `-1` and `1`. Lower it (e.g. `0.5`) if valid questions are being rejected; raise
 it (e.g. `0.7`) if irrelevant chunks reach the prompt.
 
-Other tuning constants live in `config.js`: the chat model, `DEFAULT_TOP_K` (10
+Other tuning constants live in `config.js`: the chat model, `DEFAULT_TOP_K` (6
 retrieved chunks), and `DEFAULT_MAX_HISTORY_MESSAGES` (10 messages of memory).
 Chunking constants (`CHUNK_SIZE`, `CHUNK_OVERLAP`, `MIN_CHUNK_SIZE`) live in
 `chunking.js`.

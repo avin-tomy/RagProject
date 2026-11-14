@@ -3,6 +3,7 @@ import { StringOutputParser } from '@langchain/core/output_parsers';
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import {
     createChatModel,
+    LLM_PROVIDER,
     DEFAULT_SCORE_THRESHOLD,
     DEFAULT_TOP_K,
     DEFAULT_MAX_HISTORY_MESSAGES,
@@ -65,16 +66,21 @@ Rules:
     ['human', 'Follow-up question: {question}\nStandalone question:'],
 ]);
 
-const answerPrompt = ChatPromptTemplate.fromMessages([
-    ['system',
-`You are a helpful assistant answering questions based on the provided documentation.
+const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions based on the provided documentation.
 
 Instructions:
 - Answer the question using ONLY the information in the context below and the conversation above.
 - If the answer is not in the context, say "I don't have enough information to answer that question."
 - Cite the page number(s) supporting each claim using the [Page N] labels from the context.
 - Be concise and clear.
-- Use code examples from the context if relevant.`],
+- Use code examples from the context if relevant.`;
+
+const answerSystemMessage = LLM_PROVIDER === 'openrouter'
+    ? new SystemMessage({ content: [{ type: 'text', text: ANSWER_SYSTEM_TEXT, cache_control: { type: 'ephemeral' } }] })
+    : ['system', ANSWER_SYSTEM_TEXT];
+
+const answerPrompt = ChatPromptTemplate.fromMessages([
+    answerSystemMessage,
     new MessagesPlaceholder('chat_history'),
     ['human', 'Context from the documentation:\n{context}\n\nQuestion: {question}\n\nAnswer:'],
 ]);
@@ -98,8 +104,9 @@ export function createChatSession({
     streaming = false,
     onToken = (token) => process.stdout.write(token),
     agentic = false,
-    maxAgentSteps = 5,
+    maxAgentSteps = 3,
     indexName = null,
+    documentFilter = null,
 } = {}) {
     if (!vectorStore || typeof vectorStore.similaritySearchWithScore !== 'function') {
         throw new Error('createChatSession requires a vectorStore');
@@ -136,7 +143,7 @@ export function createChatSession({
     const chain = answerPrompt.pipe(model).pipe(new StringOutputParser());
 
     const searchTool = agentic
-        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK })
+        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter })
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
@@ -160,16 +167,24 @@ You have a tool called search_documents that retrieves relevant passages from th
 - You MUST call search_documents at least once before answering any question about the document's content. Never answer from memory alone.
 - For complex questions, call search_documents multiple times with different, focused sub-queries to gather enough context.
 - Break complex questions into smaller, specific search queries.
+- Once you have retrieved relevant passages, stop searching and provide the final answer. Do not search more than necessary.
 - Stop searching once you have enough context to answer. Do not keep searching after that.
 - Answer only from the retrieved context. Cite page numbers using the [Page N] labels.
 - If no relevant context is found after searching, say "I don't have enough information to answer that question."
 - For greetings, small talk, or meta questions about the conversation, answer directly without searching.`;
 
         const messages = [
-            new SystemMessage(AGENTIC_SYSTEM_PROMPT),
-            ...chatHistory,
+            new SystemMessage(
+                LLM_PROVIDER === 'openrouter'
+                    ? { content: [{ type: 'text', text: AGENTIC_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }] }
+                    : AGENTIC_SYSTEM_PROMPT
+            ),
+            ...chatHistory.slice(-6),
             new HumanMessage(question),
         ];
+
+        const isGreeting = /^(hi|hello|hey|thanks|thank you|bye|goodbye|help|ok|okay|sure|yes|no)\b/i.test(question.trim()) && question.trim().split(/\s+/).length <= 4;
+        const boundModel = isGreeting ? agentModel : model.bindTools(agentTools, { tool_choice: 'required' });
 
         let finalAnswer = null;
         let hasContext = false;
@@ -178,8 +193,9 @@ You have a tool called search_documents that retrieves relevant passages from th
 
         while (steps < maxAgentSteps) {
             steps++;
+            const modelToUse = (steps === 1 && !isGreeting) ? boundModel : agentModel;
             const result = await withRetry(
-                () => agentModel.invoke(messages),
+                () => modelToUse.invoke(messages),
                 { label: `Agent step ${steps}`, ...retryOptions }
             );
             if (!result.ok) {
@@ -215,18 +231,30 @@ You have a tool called search_documents that retrieves relevant passages from th
         }
 
         if (finalAnswer === null) {
-            console.log('Reached the maximum number of search steps; finalizing answer...');
-            const finalizer = model.bindTools([]);
-            const finalMessages = [
-                ...messages,
-                new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
-            ];
-            const last = await withRetry(
-                () => finalizer.invoke(finalMessages),
-                { label: 'Finalizing answer', ...retryOptions }
-            );
-            if (!last.ok) throw new Error(`Gemini answer failed: ${last.message}`);
-            finalAnswer = toText(last.value.content);
+            // Safety net: if no search returned context, try the original question directly.
+            if (!hasContext) {
+                console.log('No context gathered; retrying with the original question...');
+                const raw = await searchTool.invoke({ query: question, topK: topK });
+                let parsed = {};
+                try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+                if ((parsed.count ?? 0) > 0) {
+                    hasContext = true;
+                    messages.push(new ToolMessage({ tool_call_id: 'fallback', content: raw }));
+                }
+            }
+            if (finalAnswer === null && hasContext) {
+                const finalizer = model.bindTools([]);
+                const finalMessages = [
+                    ...messages,
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
+                ];
+                const last = await withRetry(
+                    () => finalizer.invoke(finalMessages),
+                    { label: 'Finalizing answer', ...retryOptions }
+                );
+                if (last.ok) finalAnswer = toText(last.value.content);
+            }
+            if (!finalAnswer) finalAnswer = hasContext ? '' : FALLBACK_ANSWER;
         }
 
         if (searched && !hasContext && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
@@ -273,9 +301,11 @@ You have a tool called search_documents that retrieves relevant passages from th
             console.log(`Standalone search query: "${searchQuery}"`);
         }
 
+        const recentHistory = chatHistory.slice(-6);
+
         console.log(`Embedding the query and searching Pinecone for the top ${topK} matching chunks...`);
         const searchResult = await withRetry(
-            () => vectorStore.similaritySearchWithScore(searchQuery, topK),
+            () => vectorStore.similaritySearchWithScore(searchQuery, topK, documentFilter || undefined),
             { label: 'Searching Pinecone', ...retryOptions }
         );
 
@@ -308,7 +338,7 @@ You have a tool called search_documents that retrieves relevant passages from th
             .join('\n\n---\n\n');
 
         console.log('Generating answer with Gemini...');
-        const payload = { context, question, chat_history: chatHistory };
+        const payload = { context, question, chat_history: recentHistory };
         let answerResult;
 
         if (streaming) {

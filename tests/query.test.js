@@ -20,7 +20,11 @@ function silenceConsole(t) {
 function promptText(prompt) {
     if (prompt && typeof prompt.toChatMessages === 'function') {
         return prompt.toChatMessages()
-            .map((message) => String(message.content))
+            .map((message) => {
+                const c = message.content;
+                if (Array.isArray(c)) return c.map((b) => (typeof b === 'string' ? b : (b?.text ?? ''))).join('\n');
+                return String(c);
+            })
             .join('\n');
     }
     return String(prompt);
@@ -212,7 +216,7 @@ test('the first turn searches with the raw question and answers with context', a
 
     assert.equal(vectorStore.calls.length, 1);
     assert.equal(vectorStore.calls[0].query, 'What is Node.js?');
-    assert.equal(vectorStore.calls[0].topK, 10);
+    assert.equal(vectorStore.calls[0].topK, 6);
     assert.equal(calls.rewrite, 0);
     assert.equal(calls.answer, 1);
     assert.match(prompts.answer[0], /\[Page 3-5\]/);

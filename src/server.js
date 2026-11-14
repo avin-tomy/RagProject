@@ -63,6 +63,20 @@ if (!MONGODB_URI) {
 try {
     await mongoose.connect(MONGODB_URI);
     console.log('Connected to MongoDB Atlas');
+
+    // Recover PDFs stuck in 'indexing' from a previous crash/restart.
+    try {
+        const stuck = await Pdf.updateMany(
+            { status: 'indexing' },
+            { $set: { status: 'failed', error: 'Indexing was interrupted (server restart). Please re-upload.' } }
+        );
+        if (stuck.modifiedCount > 0) {
+            console.log(`Recovered ${stuck.modifiedCount} stuck indexing record(s).`);
+        }
+    } catch (err) {
+        console.warn('Could not recover stuck records:', err.message);
+    }
+
     if (process.env.NEO4J_URI) {
         graph.initGraph(process.env.NEO4J_URI, process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD);
         const s = graph.getDriver().session();
@@ -316,7 +330,7 @@ function formatSize(bytes) {
 
 // ---------- Query ----------
 app.post('/api/query', authMiddleware, async (req, res) => {
-    const { question, history = [] } = req.body || {};
+    const { question, history = [], documentIds } = req.body || {};
     if (typeof question !== 'string' || !question.trim()) {
         return res.status(400).json({ error: 'question is required' });
     }
@@ -344,9 +358,13 @@ app.post('/api/query', authMiddleware, async (req, res) => {
         const vectorStore = await PineconeStore.fromExistingIndex(embeddingModel, { pineconeIndex });
 
         const agentic = process.env.AGENTIC_RAG === 'true';
+        const documentFilter = Array.isArray(documentIds) && documentIds.length
+            ? { documentId: { $in: documentIds } }
+            : null;
         const session = createChatSession({
             vectorStore, model, rewriteModel, scoreThreshold,
             streaming: false, agentic, indexName: user.pineconeIndexName,
+            documentFilter,
         });
 
         for (const m of history) {

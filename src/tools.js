@@ -15,13 +15,13 @@ function pageRange(doc) {
     return typeof end === 'number' && end !== start ? `${start}-${end}` : `${start}`;
 }
 
-export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10 } = {}) {
+export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10, documentFilter = null } = {}) {
     return tool(
         async ({ query, topK }) => {
             const k = Math.min(Math.max(topK ?? defaultTopK, 1), 20);
             console.log(`Searching the index for: "${query}" (top ${k})...`);
 
-            const results = await vectorStore.similaritySearchWithScore(query, k);
+            const results = await vectorStore.similaritySearchWithScore(query, k, documentFilter || undefined);
             const documents = results
                 .filter(([, score]) => score >= scoreThreshold)
                 .map(([doc]) => doc);
