@@ -4,6 +4,14 @@ import remarkGfm from 'remark-gfm';
 import { jsPDF } from 'jspdf';
 import { useAuth } from '../context/AuthContext';
 
+function SafeMarkdown({ content }) {
+  try {
+    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
+  } catch (e) {
+    return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
+  }
+}
+
 export default function ChatPanel({ pdfs = [] }) {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState([
@@ -161,7 +169,7 @@ export default function ChatPanel({ pdfs = [] }) {
             }}>
               {m.role === 'user'
                 ? m.content
-                : <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>}
+                : <SafeMarkdown content={m.content} />}
             </div>
           </div>
         ))}
