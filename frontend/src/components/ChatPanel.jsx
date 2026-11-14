@@ -4,15 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { jsPDF } from 'jspdf';
 import { useAuth } from '../context/AuthContext';
 
-function SafeMarkdown({ content }) {
-  try {
-    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
-  } catch (e) {
-    return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
-  }
-}
-
-export default function ChatPanel({ pdfs = [] }) {
+export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' },
@@ -20,7 +12,6 @@ export default function ChatPanel({ pdfs = [] }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [selectedDocs, setSelectedDocs] = useState([]);
   const endRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
@@ -50,7 +41,6 @@ export default function ChatPanel({ pdfs = [] }) {
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
 
-      // strip markdown symbols for readability
       const clean = m.content
         .replace(/\*\*/g, '')
         .replace(/#{1,6}\s*/g, '')
@@ -72,10 +62,6 @@ export default function ChatPanel({ pdfs = [] }) {
     doc.save(`chat-export-${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
-  const toggleDoc = (id) => {
-    setSelectedDocs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
   const send = async (e) => {
     e?.preventDefault();
     const q = input.trim();
@@ -89,7 +75,7 @@ export default function ChatPanel({ pdfs = [] }) {
       const res = await authFetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, history: next.slice(0, -1), documentIds: selectedDocs.length ? selectedDocs : undefined }),
+        body: JSON.stringify({ question: q, history: next.slice(0, -1), documentIds: selectedDocIds.length ? selectedDocIds : undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Query failed');
@@ -102,59 +88,22 @@ export default function ChatPanel({ pdfs = [] }) {
     }
   };
 
-  const indexedPdfs = pdfs.filter(p => p.status === 'indexed');
+  function SafeMarkdown({ content }) {
+    try {
+      return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
+    } catch (e) {
+      return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 12, borderBottom: '2px solid var(--accent)', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {indexedPdfs.length > 0 && (
-            <>
-              <span style={{ fontSize: 13, color: 'var(--muted)', marginRight: 4, fontWeight: 600 }}>Filter:</span>
-              <button
-                type="button"
-                onClick={() => setSelectedDocs([])}
-                style={{
-                  fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                  border: `1px solid ${selectedDocs.length === 0 ? 'var(--accent)' : 'var(--card-border)'}`,
-                  background: selectedDocs.length === 0 ? 'var(--accent)' : '#f3f4f6',
-                  color: selectedDocs.length === 0 ? '#fff' : 'var(--text)',
-                }}
-              >
-                All
-              </button>
-              {indexedPdfs.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => toggleDoc(p.id)}
-                  style={{
-                    fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                    border: `1px solid ${selectedDocs.includes(p.id) ? 'var(--accent)' : 'var(--card-border)'}`,
-                    background: selectedDocs.includes(p.id) ? 'var(--accent)' : '#f3f4f6',
-                    color: selectedDocs.includes(p.id) ? '#fff' : 'var(--text)',
-                  }}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </>
-          )}
-          {indexedPdfs.length > 0 && selectedDocs.length === 0 && (
-            <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching all documents</span>
-          )}
-          {indexedPdfs.length > 0 && selectedDocs.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
-          )}
-          {indexedPdfs.length === 0 && (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Upload and index a PDF to enable document filtering</span>
-          )}
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
         <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
           Export PDF
         </button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260, marginTop: 8 }} className="md-body">
+      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
         {messages.map((m, i) => (
           <div key={i} style={{
             marginBottom: 12,

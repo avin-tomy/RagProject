@@ -16,17 +16,14 @@ export default function Dashboard() {
   const { user, logout, authFetch } = useAuth();
   const [pdfs, setPdfs] = useState([]);
   const [uploading, setUploading] = useState(null);
-  const [confirmLogout, setConfirmLogout] = useState(false);
-
   const [buildGraph, setBuildGraph] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState([]);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const loadPdfs = useCallback(async () => {
     try {
       const res = await authFetch('/api/pdfs');
-      if (res.status === 401) {
-        // token invalid/expired — force re-login
-        return;
-      }
+      if (res.status === 401) return;
       const data = await res.json();
       if (res.ok) setPdfs(data.pdfs || []);
       else console.error('Failed to load PDFs:', data.error);
@@ -35,7 +32,6 @@ export default function Dashboard() {
 
   useEffect(() => { loadPdfs(); }, [loadPdfs]);
 
-  // Poll while any pdf is indexing
   useEffect(() => {
     const hasIndexing = pdfs.some(p => p.status === 'indexing' || p.status === 'uploading');
     if (!hasIndexing) return;
@@ -76,7 +72,6 @@ export default function Dashboard() {
         try {
           const data = JSON.parse(xhr.responseText);
           if (data.pdf) {
-            // replace temp entry with server record
             setPdfs(prev => prev.map(x => x.id === tempId ? { ...data.pdf, id: data.pdf.id || data.pdf._id } : x));
           }
         } catch {}
@@ -120,6 +115,12 @@ export default function Dashboard() {
       alert(e.message || 'Network error');
     }
   };
+
+  const toggleDoc = (id) => {
+    setSelectedDocs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const indexedPdfs = pdfs.filter(p => p.status === 'indexed');
 
   return (
     <div className="dash">
@@ -173,10 +174,55 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {indexedPdfs.length > 0 && (
+        <div className="panel" style={{ marginTop: 20 }}>
+          <h2 style={{ fontSize: 22, marginBottom: 12 }}>Document Filter</h2>
+          <p className="hint">Select which documents to search. None selected = all documents.</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 12, borderBottom: '2px solid var(--accent)', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedDocs([])}
+                style={{
+                  fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                  border: `1px solid ${selectedDocs.length === 0 ? 'var(--accent)' : 'var(--card-border)'}`,
+                  background: selectedDocs.length === 0 ? 'var(--accent)' : '#f3f4f6',
+                  color: selectedDocs.length === 0 ? '#fff' : 'var(--text)',
+                }}
+              >
+                All
+              </button>
+              {indexedPdfs.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => toggleDoc(p.id)}
+                  style={{
+                    fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                    border: `1px solid ${selectedDocs.includes(p.id) ? 'var(--accent)' : 'var(--card-border)'}`,
+                    background: selectedDocs.includes(p.id) ? 'var(--accent)' : '#f3f4f6',
+                    color: selectedDocs.includes(p.id) ? '#fff' : 'var(--text)',
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            {selectedDocs.length === 0 && (
+              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching all documents</span>
+            )}
+            {selectedDocs.length > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="panel" style={{ marginTop: 20 }}>
         <h2 style={{ fontSize: 22, marginBottom: 12 }}>Chat</h2>
-        <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} />
+        <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} selectedDocIds={selectedDocs} />
       </div>
+
       {confirmLogout && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',

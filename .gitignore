@@ -15,7 +15,8 @@ frontend/dist/
 dist/
 coverage/
 
-# Uncomment to avoid committing the source PDF (large / copyrighted)
-# Node.pdf
-uploads/
+# PDF documents (user-provided, not tracked)
+*.pdf
 Pdf/
+pdf/
+uploads/
