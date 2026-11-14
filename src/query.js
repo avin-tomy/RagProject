@@ -243,16 +243,19 @@ You have a tool called search_documents that retrieves relevant passages from th
                 }
             }
             if (finalAnswer === null && hasContext) {
-                const finalizer = model.bindTools([]);
-                const finalMessages = [
-                    ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
-                ];
-                const last = await withRetry(
-                    () => finalizer.invoke(finalMessages),
-                    { label: 'Finalizing answer', ...retryOptions }
-                );
-                if (last.ok) finalAnswer = toText(last.value.content);
+                for (let attempt = 0; attempt < 2 && (!finalAnswer || !finalAnswer.trim()); attempt++) {
+                    if (attempt > 0) console.log('Empty response; retrying final answer...');
+                    const finalizer = model.bindTools([]);
+                    const finalMessages = [
+                        ...messages,
+                        new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
+                    ];
+                    const last = await withRetry(
+                        () => finalizer.invoke(finalMessages),
+                        { label: 'Finalizing answer', ...retryOptions }
+                    );
+                    if (last.ok) finalAnswer = toText(last.value.content);
+                }
             }
             if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
         }
@@ -382,13 +385,25 @@ You have a tool called search_documents that retrieves relevant passages from th
             throw new Error(`Gemini answer failed: ${answerResult.message}`);
         }
 
-        const answer = answerResult.value || FALLBACK_ANSWER;
-        const finalAnswer = answer.trim() ? answer : FALLBACK_ANSWER;
+        let finalAnswer = answerResult.value || '';
+        // Retry once if the model returned an empty response.
+        if (!finalAnswer.trim() && !streaming) {
+            console.log('Empty response; retrying answer...');
+            const retryResult = await withRetry(
+                () => chain.invoke(payload),
+                { label: 'Generating answer (retry)', ...retryOptions }
+            );
+            if (retryResult.ok && retryResult.value?.trim()) {
+                finalAnswer = retryResult.value;
+            }
+        }
+        if (!finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
+
         chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();
 
         if (streaming) {
-            if (finalAnswer === FALLBACK_ANSWER && !answer.trim()) {
+            if (finalAnswer === FALLBACK_ANSWER && !answerResult.value?.trim()) {
                 onToken(FALLBACK_ANSWER);
             }
             onToken('\n');
