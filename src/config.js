@@ -1,17 +1,25 @@
 import 'dotenv/config';
 import { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 
-// Single source of truth for the models used by both indexing and querying.
-export const EMBEDDING_MODEL = 'gemini-embedding-001';
+// Provider selection: 'gemini' (default) or 'openrouter'
+export const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 
-// gemini-embedding-001 produces 3072-dimensional vectors by default.
-// The Pinecone index dimension must match exactly.
-export const EMBEDDING_DIMENSION = 3072;
+const isOpenRouter = LLM_PROVIDER === 'openrouter';
+
+// Model names — overridable via env for easy experimentation.
+export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || (isOpenRouter
+    ? 'perplexity/pplx-embed-v1-0.6b'
+    : 'gemini-embedding-001');
+
+export const EMBEDDING_DIMENSION = Number(process.env.EMBEDDING_DIMENSION) || (isOpenRouter ? 1024 : 3072);
+
 export const INDEX_METRIC = 'cosine';
 
-// The chat model name is intentionally kept as-is.
-export const CHAT_MODEL = 'gemini-3.8-flash';
+export const CHAT_MODEL = process.env.CHAT_MODEL || (isOpenRouter
+    ? 'inclusionai/ling-3.0-flash'
+    : 'gemini-3.8-flash');
 
 export const DEFAULT_SCORE_THRESHOLD = 0.5;
 export const DEFAULT_TOP_K = 10;
@@ -25,6 +33,11 @@ export function requireEnv(name) {
         throw new Error(`${name} is not set in .env`);
     }
     return value.trim();
+}
+
+export function getProviderEnv() {
+    if (isOpenRouter) return requireEnv('OPENROUTER_API_KEY');
+    return requireEnv('GEMINI_API_KEY');
 }
 
 export function getIndexName() {
@@ -63,6 +76,13 @@ export function isNotFoundError(err) {
 }
 
 export function createEmbeddingModel() {
+    if (isOpenRouter) {
+        return new OpenAIEmbeddings({
+            apiKey: requireEnv('OPENROUTER_API_KEY'),
+            model: EMBEDDING_MODEL,
+            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+        });
+    }
     return new GoogleGenerativeAIEmbeddings({
         apiKey: requireEnv('GEMINI_API_KEY'),
         model: EMBEDDING_MODEL,
@@ -70,17 +90,23 @@ export function createEmbeddingModel() {
 }
 
 export function createChatModel() {
-    return createGeminiChatModel(0.3);
+    return createChatModelWithTemp(0.3);
 }
 
-// Rewriting is a deterministic transformation, so it uses temperature 0 and a
-// separate model instance from the answer model.
 export function createRewriteModel() {
-    return createGeminiChatModel(0);
+    return createChatModelWithTemp(0);
 }
 
-// Extraction model: temperature 0 + JSON mode for reliable entity extraction.
 export function createExtractionModel() {
+    if (isOpenRouter) {
+        return new ChatOpenAI({
+            apiKey: requireEnv('OPENROUTER_API_KEY'),
+            model: process.env.EXTRACTION_MODEL?.trim() || CHAT_MODEL,
+            temperature: 0,
+            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+            modelKwargs: { response_format: { type: 'json_object' } },
+        });
+    }
     const model = process.env.EXTRACTION_MODEL?.trim() || CHAT_MODEL;
     return new ChatGoogleGenerativeAI({
         apiKey: requireEnv('GEMINI_API_KEY'),
@@ -90,7 +116,15 @@ export function createExtractionModel() {
     });
 }
 
-function createGeminiChatModel(temperature) {
+function createChatModelWithTemp(temperature) {
+    if (isOpenRouter) {
+        return new ChatOpenAI({
+            apiKey: requireEnv('OPENROUTER_API_KEY'),
+            model: CHAT_MODEL,
+            temperature,
+            configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+        });
+    }
     return new ChatGoogleGenerativeAI({
         apiKey: requireEnv('GEMINI_API_KEY'),
         model: CHAT_MODEL,

@@ -457,18 +457,33 @@ test('ensurePineconeIndex reuses an existing compatible index', async (t) => {
     assert.equal(createCalls, 0);
 });
 
-test('ensurePineconeIndex rejects an incompatible existing index', async (t) => {
+test('ensurePineconeIndex recreates an incompatible existing index', async (t) => {
     silenceConsole(t);
-    const pinecone = {
-        async describeIndex() {
-            return { dimension: 768, metric: INDEX_METRIC };
-        },
-    };
+    await withEnv({ PINECONE_CLOUD: '', PINECONE_REGION: '' }, async () => {
+        let describeCalls = 0;
+        let createArgs = null;
+        let deleteCalls = 0;
+        let deleted = false;
+        let created = false;
+        const pinecone = {
+            async describeIndex() {
+                if (deleted && !created) {
+                    throw Object.assign(new Error('404 Not Found'), { name: 'PineconeNotFoundError' });
+                }
+                describeCalls++;
+                if (describeCalls === 1) return { dimension: 768, metric: INDEX_METRIC };
+                return { dimension: EMBEDDING_DIMENSION, metric: INDEX_METRIC };
+            },
+            async deleteIndex() { deleteCalls++; deleted = true; },
+            async createIndex(args) { createArgs = args; created = true; },
+        };
 
-    await assert.rejects(
-        () => ensurePineconeIndex(pinecone, 'node-pdf-rag'),
-        /dimension 768/
-    );
+        const result = await ensurePineconeIndex(pinecone, 'node-pdf-rag');
+
+        assert.equal(result.dimension, EMBEDDING_DIMENSION);
+        assert.equal(deleteCalls, 1);
+        assert.equal(createArgs.name, 'node-pdf-rag');
+    });
 });
 
 test('ensurePineconeIndex propagates non-404 lookup errors', async (t) => {

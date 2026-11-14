@@ -9,6 +9,7 @@ import {
     assertIndexCompatible,
     isNotFoundError,
     requireEnv,
+    getProviderEnv,
     EMBEDDING_DIMENSION,
     INDEX_METRIC,
     createExtractionModel,
@@ -103,13 +104,35 @@ export async function ensurePineconeIndex(pinecone, indexName) {
     }
 
     if (existingIndex) {
-        console.log(`Index "${indexName}" found. Verifying its configuration...`);
-        assertIndexCompatible(existingIndex, indexName);
-        console.log(
-            `Using existing index "${indexName}" ` +
-            `(dimension=${existingIndex.dimension}, metric=${existingIndex.metric})`
-        );
-        return existingIndex;
+        // If the existing index is incompatible (e.g., embedding model changed),
+        // delete it and recreate with the correct configuration.
+        if (existingIndex.dimension !== EMBEDDING_DIMENSION || existingIndex.metric !== INDEX_METRIC) {
+            console.log(
+                `Index "${indexName}" is incompatible ` +
+                `(dimension=${existingIndex.dimension}, metric=${existingIndex.metric}). ` +
+                `Recreating it (dimension=${EMBEDDING_DIMENSION}, metric=${INDEX_METRIC})...`
+            );
+            await pinecone.deleteIndex(indexName);
+            // Wait for deletion to propagate
+            for (let i = 0; i < 30; i++) {
+                try {
+                    await pinecone.describeIndex(indexName);
+                    await new Promise((r) => setTimeout(r, 2000));
+                } catch (e) {
+                    if (isNotFoundError(e)) break;
+                    throw e;
+                }
+            }
+            existingIndex = null;
+        } else {
+            console.log(`Index "${indexName}" found. Verifying its configuration...`);
+            assertIndexCompatible(existingIndex, indexName);
+            console.log(
+                `Using existing index "${indexName}" ` +
+                `(dimension=${existingIndex.dimension}, metric=${existingIndex.metric})`
+            );
+            return existingIndex;
+        }
     }
 
     const cloud = getPineconeCloud();
@@ -353,8 +376,8 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
     let indexName = null;
     if (!dryRun) {
         // Validate configuration before doing any expensive PDF work.
-        requireEnv('GEMINI_API_KEY');
         requireEnv('PINECONE_API_KEY');
+        getProviderEnv();
         indexName = indexNameOverride || getIndexName();
     }
     const report = typeof onProgress === 'function' ? onProgress : () => {};

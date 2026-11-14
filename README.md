@@ -29,8 +29,8 @@ The Pinecone index is created automatically by `indexing.js` if it does not exis
 (3072 dimensions, cosine metric, serverless). Creation uses `aws` / `us-east-1`
 by default; set `PINECONE_CLOUD` and `PINECONE_REGION` to use another region.
 The first run waits for the index to become ready, which can take ~10–30 seconds.
-An existing index is reused only if its dimension and metric match; otherwise the
-run stops with an actionable error instead of silently using an incompatible index.
+An existing index is reused only if its dimension and metric match; otherwise it is
+deleted and recreated automatically (so changing embedding models just works).
 
 ## Usage
 
@@ -70,7 +70,12 @@ npm test        # syntax checks + behavioral tests (no API keys needed)
 | `PINECONE_INDEX_NAME` | yes | – | Index to create/use (see naming rules above) |
 | `PINECONE_CLOUD` | no | `aws` | Serverless cloud for a new index |
 | `PINECONE_REGION` | no | `us-east-1` | Serverless region for a new index |
-| `SCORE_THRESHOLD` | no | `0.5` | Minimum cosine similarity for a chunk to be used |
+| `LLM_PROVIDER` | no | `gemini` | `gemini` or `openrouter` |
+| `OPENROUTER_API_KEY` | if openrouter | – | OpenRouter API key |
+| `OPENROUTER_CHAT_MODEL` | no | `google/gemini-2.0-flash-exp:free` | Chat model on OpenRouter |
+| `OPENROUTER_EMBEDDING_MODEL` | no | `openai/text-embedding-3-small` | Embedding model on OpenRouter |
+| `EMBEDDING_DIMENSION` | no | auto | Override embedding dimension (1536 for OpenAI small) |
+| `EXTRACTION_MODEL` | no | chat model | Model used for entity extraction |
 | `AGENTIC_RAG` | no | `false` | Enable multi-step agentic RAG |
 
 Blank values are treated as unset. `SCORE_THRESHOLD` must be a number between

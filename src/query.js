@@ -157,7 +157,8 @@ export function createChatSession({
         const AGENTIC_SYSTEM_PROMPT = `You are a helpful assistant answering questions about the provided documentation.
 
 You have a tool called search_documents that retrieves relevant passages from the indexed PDF.
-- For any factual question about the document, call search_documents before answering. You may call it multiple times with different, focused sub-queries to gather enough context.
+- You MUST call search_documents at least once before answering any question about the document's content. Never answer from memory alone.
+- For complex questions, call search_documents multiple times with different, focused sub-queries to gather enough context.
 - Break complex questions into smaller, specific search queries.
 - Stop searching once you have enough context to answer. Do not keep searching after that.
 - Answer only from the retrieved context. Cite page numbers using the [Page N] labels.

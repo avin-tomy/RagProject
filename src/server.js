@@ -219,6 +219,7 @@ function serializePdf(p) {
         status: p.status,
         phase: p.phase || '',
         progress: p.progress || 0,
+        graphEnabled: p.graphEnabled || false,
         error: p.error,
         uploadedAt: p.createdAt ? new Date(p.createdAt).toLocaleString() : '',
         indexName: p.indexName,

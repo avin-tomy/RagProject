@@ -14,6 +14,7 @@ import {
     EMBEDDING_DIMENSION,
     INDEX_METRIC,
     CHAT_MODEL,
+    LLM_PROVIDER,
 } from '../src/config.js';
 
 const MANAGED_ENV = [
@@ -48,8 +49,11 @@ function withEnv(overrides, fn) {
 }
 
 test('models are declared in one place', () => {
-    assert.equal(CHAT_MODEL, 'gemini-3.8-flash');
-    assert.equal(EMBEDDING_DIMENSION, 3072);
+    const expectedChatModel = LLM_PROVIDER === 'openrouter'
+        ? 'inclusionai/ling-3.0-flash'
+        : 'gemini-3.8-flash';
+    assert.equal(CHAT_MODEL, expectedChatModel);
+    assert.equal(EMBEDDING_DIMENSION, LLM_PROVIDER === 'openrouter' ? 1024 : 3072);
     assert.equal(INDEX_METRIC, 'cosine');
 });
 

@@ -111,7 +111,7 @@ export default function Dashboard() {
         <div className="panel">
           <h2>Your PDFs</h2>
           <p className="hint">{pdfs.length} file{pdfs.length === 1 ? '' : 's'} in your workspace.</p>
-          <PdfList items={pdfs.map(p => ({ id: p.id || p._id, name: p.name, size: p.size, uploadedAt: p.uploadedAt, status: p.status }))} onRemove={removePdf} />
+          <PdfList items={pdfs.map(p => ({ id: p.id || p._id, name: p.name, size: p.size, uploadedAt: p.uploadedAt, status: p.status, phase: p.phase, progress: p.progress, graphEnabled: p.graphEnabled }))} onRemove={removePdf} />
         </div>
       </div>
 
