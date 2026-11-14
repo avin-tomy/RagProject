@@ -254,13 +254,15 @@ You have a tool called search_documents that retrieves relevant passages from th
                 );
                 if (last.ok) finalAnswer = toText(last.value.content);
             }
-            if (!finalAnswer) finalAnswer = hasContext ? '' : FALLBACK_ANSWER;
+            if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
         }
 
         if (searched && !hasContext && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
             // The model answered without any supporting context; prefer the fallback.
             finalAnswer = FALLBACK_ANSWER;
         }
+
+        if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
 
         chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();
@@ -380,14 +382,18 @@ You have a tool called search_documents that retrieves relevant passages from th
             throw new Error(`Gemini answer failed: ${answerResult.message}`);
         }
 
-        const answer = answerResult.value;
-        chatHistory.push(new HumanMessage(question), new AIMessage(answer));
+        const answer = answerResult.value || FALLBACK_ANSWER;
+        const finalAnswer = answer.trim() ? answer : FALLBACK_ANSWER;
+        chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();
 
         if (streaming) {
+            if (finalAnswer === FALLBACK_ANSWER && !answer.trim()) {
+                onToken(FALLBACK_ANSWER);
+            }
             onToken('\n');
         } else {
-            console.log(`\n${answer}\n`);
+            console.log(`\n${finalAnswer}\n`);
         }
     }
 
