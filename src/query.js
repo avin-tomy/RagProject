@@ -174,8 +174,8 @@ export function createChatSession({
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
-    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold }));
-    agentTools.push(createExtractTablesTool(vectorStore));
+    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter }));
+    agentTools.push(createExtractTablesTool(vectorStore, { documentFilter }));
     agentTools.push(createCalculatorTool());
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));

@@ -116,12 +116,13 @@ export function createCompareDocumentsTool(indexName) {
         }
     );
 }
-export function createPageContentTool(vectorStore, { scoreThreshold } = {}) {
+export function createPageContentTool(vectorStore, { scoreThreshold, documentFilter = null } = {}) {
     return tool(
         async ({ page, topK }) => {
             const k = topK ?? 20;
             console.log(`Fetching content for page ${page}...`);
-            const results = await vectorStore.similaritySearchWithScore('content', k, { page });
+            const filter = { page, ...(documentFilter || {}) };
+            const results = await vectorStore.similaritySearchWithScore('content', k, filter);
             const docs = results.map(([doc]) => doc);
             if (docs.length === 0) {
                 return JSON.stringify({ page, content: '', message: 'No content found for this page.' });
@@ -144,11 +145,12 @@ export function createPageContentTool(vectorStore, { scoreThreshold } = {}) {
     );
 }
 
-export function createExtractTablesTool(vectorStore) {
+export function createExtractTablesTool(vectorStore, { documentFilter = null } = {}) {
     return tool(
         async ({ page }) => {
             console.log(`Extracting tables from page ${page}...`);
-            const results = await vectorStore.similaritySearchWithScore('table', 20, { page });
+            const filter = { page, ...(documentFilter || {}) };
+            const results = await vectorStore.similaritySearchWithScore('table', 20, filter);
             const docs = results.map(([doc]) => doc);
             if (docs.length === 0) {
                 return JSON.stringify({ page, tables: [], message: 'No content found for this page.' });
