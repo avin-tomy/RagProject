@@ -374,10 +374,16 @@ app.post('/api/query', authMiddleware, async (req, res) => {
         const documentFilter = Array.isArray(documentIds) && documentIds.length
             ? { documentId: { $in: documentIds } }
             : null;
+
+        // Document list for the agent's context (from MongoDB, always available).
+        const userPdfs = await Pdf.find({ userId: user._id, status: 'indexed' }).select('originalName _id');
+        const documents = userPdfs.map((p) => ({ name: p.originalName, documentId: p._id.toString() }));
+
         const session = createChatSession({
             vectorStore, model, rewriteModel, scoreThreshold,
             streaming: false, agentic, indexName: user.pineconeIndexName,
             documentFilter,
+            documents,
         });
 
         for (const m of history) {

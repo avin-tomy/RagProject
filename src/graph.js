@@ -194,6 +194,48 @@ export async function queryGraph(indexName, cypher, params = {}) {
     }
 }
 
+export async function listDocuments(indexName) {
+    if (!driver) return [];
+    const session = driver.session();
+    try {
+        const r = await session.run(
+            `MATCH (d:Document {indexName: $indexName})
+             RETURN d.name AS name, d.documentId AS documentId, d.pageCount AS pageCount`,
+            { indexName }
+        );
+        return r.records.map((rec) => ({
+            name: rec.get('name'),
+            documentId: rec.get('documentId'),
+            pageCount: neo4j.isInt(rec.get('pageCount')) ? rec.get('pageCount').toNumber() : rec.get('pageCount'),
+        }));
+    } finally {
+        await session.close();
+    }
+}
+
+export async function findSharedEntities(indexName) {
+    if (!driver) return [];
+    const session = driver.session();
+    try {
+        const r = await session.run(
+            `MATCH (c:Chunk {indexName: $indexName})-[:MENTIONS]->(e:Entity)
+             WITH e, collect(DISTINCT c.documentId) AS docs
+             WHERE size(docs) > 1
+             RETURN e.name AS name, e.type AS type, docs
+             ORDER BY size(docs) DESC
+             LIMIT 40`,
+            { indexName }
+        );
+        return r.records.map((rec) => ({
+            name: rec.get('name'),
+            type: rec.get('type'),
+            docCount: rec.get('docs').length,
+            docs: rec.get('docs'),
+        }));
+    } finally {
+        await session.close();
+    }
+}
 export async function getGraphStats(indexName) {
     if (!driver) return null;
     const session = driver.session();

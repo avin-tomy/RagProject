@@ -15,7 +15,7 @@ import {
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
 import * as graph from './graph.js';
-import { createSearchTool, createGraphTool } from './tools.js';
+import { createSearchTool, createGraphTool, createListDocumentsTool, createCompareDocumentsTool } from './tools.js';
 
 // Short conversational messages (greetings, thanks, compliments) that should
 // never trigger a document search or a rewrite.
@@ -133,6 +133,7 @@ export function createChatSession({
     maxAgentSteps = 3,
     indexName = null,
     documentFilter = null,
+    documents = null,
 } = {}) {
     if (!vectorStore || typeof vectorStore.similaritySearchWithScore !== 'function') {
         throw new Error('createChatSession requires a vectorStore');
@@ -175,6 +176,8 @@ export function createChatSession({
     if (searchTool) agentTools.push(searchTool);
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
+        agentTools.push(createListDocumentsTool(indexName));
+        agentTools.push(createCompareDocumentsTool(indexName));
     }
     const toolByName = Object.fromEntries(agentTools.map((t) => [t.name, t]));
     const agentModel = agentic && agentTools.length ? model.bindTools(agentTools) : null;
@@ -204,17 +207,29 @@ export function createChatSession({
             return;
         }
 
+        const docList = Array.isArray(documents) && documents.length
+            ? documents.map((d) => `- ${d.name}${d.documentId ? ` (id: ${d.documentId})` : ''}`).join('\n')
+            : '(none)';
+
         const AGENTIC_SYSTEM_PROMPT = `You are a helpful assistant answering questions about the provided documentation.
 
-You have a tool called search_documents that retrieves relevant passages from the indexed PDF.
-- You MUST call search_documents at least once before answering any question about the document's content. Never answer from memory alone.
-- For complex questions, call search_documents multiple times with different, focused sub-queries to gather enough context.
-- Break complex questions into smaller, specific search queries.
-- Once you have retrieved relevant passages, stop searching and provide the final answer. Do not search more than necessary.
-- Stop searching once you have enough context to answer. Do not keep searching after that.
-- Answer only from the retrieved context. Cite page numbers using the [Page N] labels from the context (e.g., "According to [Page 5]...").
-- If no relevant context is found after searching, say "I don't have enough information to answer that question."
-- For greetings or meta questions about the conversation (not about the document), answer directly without searching.`;
+Available documents:
+${docList}
+
+You have these tools:
+- search_documents: retrieve passages relevant to a query (vector search). Use for factual questions.
+- query_graph: run Cypher on the knowledge graph (relationships, traversal, aggregation).
+- list_documents: list all indexed documents.
+- compare_documents: find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?", "compare X and Y".
+
+Rules:
+- For any factual question about a document, call search_documents at least once before answering.
+- For relationship/cross-document questions (e.g. "are these related?", "what do they share?"), call compare_documents.
+- You may call tools multiple times with different sub-queries.
+- Once you have enough context, stop searching and answer.
+- Answer only from retrieved context. Cite page numbers using [Page N].
+- If no relevant context is found, say "I don't have enough information to answer that question."
+- For greetings or meta questions, answer directly without searching.`;
 
         const messages = [
             new SystemMessage(

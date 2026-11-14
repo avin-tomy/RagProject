@@ -68,6 +68,54 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
 
 const WRITE_KEYWORDS = /\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|CALL\s+db\.|LOAD\s+CSV|FOREACH)\b/i;
 
+export function createListDocumentsTool(indexName) {
+    return tool(
+        async () => {
+            if (!graph.getDriver()) return JSON.stringify({ error: 'Graph not configured' });
+            const docs = await graph.listDocuments(indexName);
+            return JSON.stringify({ documents: docs, count: docs.length });
+        },
+        {
+            name: 'list_documents',
+            description: 'List all documents (PDFs) indexed in the knowledge graph. Use this to discover what documents are available before comparing or cross-referencing.',
+            schema: z.object({}),
+        }
+    );
+}
+
+export function createCompareDocumentsTool(indexName) {
+    return tool(
+        async () => {
+            if (!graph.getDriver()) return JSON.stringify({ error: 'Graph not configured' });
+            const docs = await graph.listDocuments(indexName);
+            const shared = await graph.findSharedEntities(indexName);
+            const lines = [];
+            lines.push(`Documents in index (${docs.length}):`);
+            for (const d of docs) {
+                lines.push(`  - ${d.name}${d.documentId ? ` (id: ${d.documentId})` : ''}`);
+            }
+            lines.push('');
+            if (shared.length === 0) {
+                lines.push('No shared entities found across documents — they appear unrelated.');
+            } else {
+                lines.push(`Shared entities across documents (${shared.length}):`);
+                for (const e of shared) {
+                    lines.push(`  - ${e.name} (${e.type}) — appears in ${e.docCount} documents`);
+                }
+            }
+            return JSON.stringify({ summary: lines.join('\\n'), documents: docs, sharedEntities: shared });
+        },
+        {
+            name: 'compare_documents',
+            description:
+                'Compare all indexed documents and find shared entities/concepts across them. ' +
+                'Use this for questions like "Are these documents related?", "What do they have in common?", ' +
+                '"Compare document A and B", or "Which concepts appear in multiple documents?". ' +
+                'Returns the list of documents and entities shared between them.',
+            schema: z.object({}),
+        }
+    );
+}
 export function createGraphTool(indexName) {
     return tool(
         async ({ cypher, params }) => {
