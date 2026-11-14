@@ -216,7 +216,7 @@ test('the first turn searches with the raw question and answers with context', a
 
     assert.equal(vectorStore.calls.length, 1);
     assert.equal(vectorStore.calls[0].query, 'What is Node.js?');
-    assert.equal(vectorStore.calls[0].topK, 6);
+    assert.equal(vectorStore.calls[0].topK, 4);
     assert.equal(calls.rewrite, 0);
     assert.equal(calls.answer, 1);
     assert.match(prompts.answer[0], /\[Page 3-5\]/);

@@ -22,7 +22,7 @@ export const CHAT_MODEL = process.env.CHAT_MODEL || (isOpenRouter
     : 'gemini-3.8-flash');
 
 export const DEFAULT_SCORE_THRESHOLD = isOpenRouter ? 0.1 : 0.5;
-export const DEFAULT_TOP_K = Number(process.env.TOP_K) || 6;
+export const DEFAULT_TOP_K = Number(process.env.TOP_K) || 4;
 export const DEFAULT_MAX_HISTORY_MESSAGES = 10;
 
 export const INDEX_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/;

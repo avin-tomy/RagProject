@@ -179,7 +179,7 @@ You have a tool called search_documents that retrieves relevant passages from th
                     ? { content: [{ type: 'text', text: AGENTIC_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }] }
                     : AGENTIC_SYSTEM_PROMPT
             ),
-            ...chatHistory.slice(-10),
+            ...chatHistory.slice(-6),
             new HumanMessage(question),
         ];
 
@@ -301,7 +301,7 @@ You have a tool called search_documents that retrieves relevant passages from th
             console.log(`Standalone search query: "${searchQuery}"`);
         }
 
-        const recentHistory = chatHistory.slice(-10);
+        const recentHistory = chatHistory.slice(-6);
 
         console.log(`Embedding the query and searching Pinecone for the top ${topK} matching chunks...`);
         const searchResult = await withRetry(
