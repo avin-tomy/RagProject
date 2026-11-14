@@ -174,7 +174,7 @@ export default function Dashboard() {
       </div>
 
       <div className="panel" style={{ marginTop: 20 }}>
-        <h2>Chat</h2>
+        <h2 style={{ fontSize: 22, marginBottom: 12 }}>Chat</h2>
         <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} />
       </div>
       {confirmLogout && (

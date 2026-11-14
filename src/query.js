@@ -17,7 +17,32 @@ import {
 import * as graph from './graph.js';
 import { createSearchTool, createGraphTool } from './tools.js';
 
+// Short conversational messages (greetings, thanks, compliments) that should
+// never trigger a document search or a rewrite.
+const CONVERSATIONAL_PATTERNS = [
+    /^(hi|hello|hey|thanks|thank you|thx|ty|great|awesome|perfect|helpful|got it|ok|okay|sure|bye|goodbye|cool|nice|appreciate|cheers)\b/i,
+    /^(that'?s? (it|all|great|helpful|perfect|awesome)|you'?re (welcome|helpful)|no (problem|worries))\b/i,
+];
+
 export const FALLBACK_ANSWER = "I don't have enough information to answer that question.";
+
+export function conversationalReply(question) {
+    const text = String(question ?? '').trim().toLowerCase();
+    if (/^(hi|hello|hey)\b/.test(text)) return "Hello! How can I help you today?";
+    if (/^(thanks|thank you|thx|ty|cheers|appreciate)\b/.test(text)) return "You're welcome! Let me know if you have any other questions about the document.";
+    if (/^(bye|goodbye)\b/.test(text)) return "Goodbye! Feel free to come back anytime.";
+    return "You're welcome! Let me know if you have any other questions about the document.";
+}
+
+export function isConversational(question) {
+    const text = String(question ?? '').trim();
+    if (!text) return false;
+    // Short messages (≤4 words) that match a conversational pattern.
+    if (text.split(/\s+/).filter(Boolean).length <= 4 && CONVERSATIONAL_PATTERNS.some((p) => p.test(text))) {
+        return true;
+    }
+    return false;
+}
 
 function toText(content) {
     if (typeof content === 'string') return content;
@@ -41,6 +66,7 @@ export function needsRewrite(question, chatHistory = []) {
 
     const text = String(question ?? '').trim();
     if (!text) return false;
+    if (isConversational(text)) return false;
     if (FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text))) return true;
 
     return text.split(/\s+/).filter(Boolean).length <= SHORT_QUESTION_WORDS;
@@ -161,6 +187,19 @@ export function createChatSession({
     }
 
     async function agenticChat(question) {
+        if (isConversational(question)) {
+            const reply = conversationalReply(question);
+            chatHistory.push(new HumanMessage(question), new AIMessage(reply));
+            pruneHistory();
+            if (streaming) {
+                onToken(reply);
+                onToken('\n');
+            } else {
+                console.log(`\n${reply}\n`);
+            }
+            return;
+        }
+
         const AGENTIC_SYSTEM_PROMPT = `You are a helpful assistant answering questions about the provided documentation.
 
 You have a tool called search_documents that retrieves relevant passages from the indexed PDF.
@@ -301,6 +340,20 @@ You have a tool called search_documents that retrieves relevant passages from th
             await agenticChat(question);
             return;
         }
+
+        if (isConversational(question)) {
+            const reply = conversationalReply(question);
+            chatHistory.push(new HumanMessage(question), new AIMessage(reply));
+            pruneHistory();
+            if (streaming) {
+                onToken(reply);
+                onToken('\n');
+            } else {
+                console.log(`\n${reply}\n`);
+            }
+            return;
+        }
+
         const searchQuery = await rewriteQuestion(question);
         if (searchQuery !== question) {
             console.log(`Standalone search query: "${searchQuery}"`);

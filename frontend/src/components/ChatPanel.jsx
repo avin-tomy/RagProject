@@ -106,16 +106,16 @@ export default function ChatPanel({ pdfs = [] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 12, borderBottom: '2px solid var(--accent)', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {indexedPdfs.length > 0 && (
             <>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Filter:</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)', marginRight: 4, fontWeight: 600 }}>Filter:</span>
               <button
                 type="button"
                 onClick={() => setSelectedDocs([])}
                 style={{
-                  fontSize: 12, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                  fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
                   border: `1px solid ${selectedDocs.length === 0 ? 'var(--accent)' : 'var(--card-border)'}`,
                   background: selectedDocs.length === 0 ? 'var(--accent)' : '#f3f4f6',
                   color: selectedDocs.length === 0 ? '#fff' : 'var(--text)',
@@ -129,7 +129,7 @@ export default function ChatPanel({ pdfs = [] }) {
                   type="button"
                   onClick={() => toggleDoc(p.id)}
                   style={{
-                    fontSize: 12, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                    fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
                     border: `1px solid ${selectedDocs.includes(p.id) ? 'var(--accent)' : 'var(--card-border)'}`,
                     background: selectedDocs.includes(p.id) ? 'var(--accent)' : '#f3f4f6',
                     color: selectedDocs.includes(p.id) ? '#fff' : 'var(--text)',
