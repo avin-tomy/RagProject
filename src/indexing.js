@@ -248,8 +248,12 @@ export async function embedBatches(
         const label = describeBatch(batch, batches.length);
         console.log(`  ${label}: embedding...`);
 
+        const texts = batch.docs.map((doc) => {
+            const text = (doc.pageContent || '').trim();
+            return text.length > 0 ? text : '[empty]';
+        });
         const result = await withRetry(
-            () => embeddingModel.embedDocuments(batch.docs.map((doc) => doc.pageContent)),
+            () => embeddingModel.embedDocuments(texts),
             { label: `${label} embedding`, maxAttempts, baseDelayMs }
         );
 
@@ -260,6 +264,13 @@ export async function embedBatches(
 
         if (!Array.isArray(result.value) || result.value.length !== batch.docs.length) {
             const message = `Expected ${batch.docs.length} embeddings, got ${result.value?.length ?? 0}`;
+            console.error(`  ${label}: FAILED - ${message}`);
+            failures.push({ label, message, attempts: result.attempts });
+            continue;
+        }
+
+        if (result.value.some((v) => !Array.isArray(v) || v.length === 0)) {
+            const message = 'One or more embeddings came back empty';
             console.error(`  ${label}: FAILED - ${message}`);
             failures.push({ label, message, attempts: result.attempts });
             continue;

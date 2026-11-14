@@ -80,6 +80,7 @@ export function createEmbeddingModel() {
         return new OpenAIEmbeddings({
             apiKey: requireEnv('OPENROUTER_API_KEY'),
             model: EMBEDDING_MODEL,
+            encodingFormat: 'float',
             configuration: {
                 baseURL: 'https://openrouter.ai/api/v1',
                 defaultHeaders: {
