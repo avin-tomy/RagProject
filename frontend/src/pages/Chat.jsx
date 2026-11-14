@@ -1,10 +1,25 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChatPanel from '../components/ChatPanel';
-import { useNavigate } from 'react-router-dom';
+
+const API = '';
 
 export default function Chat() {
-  const { logout } = useAuth();
+  const { user, logout, authFetch } = useAuth();
   const navigate = useNavigate();
+  const [pdfs, setPdfs] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await authFetch('/api/pdfs');
+        const data = await res.json();
+        if (res.ok) setPdfs((data.pdfs || []).map(p => ({ id: p.id || p._id, name: p.name, status: p.status })));
+      } catch {}
+    })();
+  }, [authFetch]);
+
   return (
     <div className="dash">
       <header className="dash-header">
@@ -18,7 +33,7 @@ export default function Chat() {
         </div>
       </header>
       <div className="panel" style={{ height: 'calc(100vh - 160px)' }}>
-        <ChatPanel />
+        <ChatPanel pdfs={pdfs} />
       </div>
     </div>
   );
