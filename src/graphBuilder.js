@@ -59,10 +59,10 @@ export async function buildKnowledgeGraph({ indexName, docName, documentId, chun
             const passages = batch.map((b, j) => `--- Passage ${j + 1} ---\n${(b.doc?.text || b.doc || '').slice(0, 1000)}`).join('\n\n');
             const prompt = `You are an information extraction engine. Given ${batch.length} passages, extract entities and relations from EACH passage.
 
-Return a JSON array with exactly ${batch.length} objects, one per passage, in order:
-[
-  { "entities": [{"name":"...","type":"...","description":"..."}], "relations": [{"from":"...","fromType":"...","to":"...","toType":"...","type":"RELATION_LABEL","evidence":"..."}] }
-]
+Return a JSON object with this shape:
+{ "passages": [ { "entities": [{"name":"...","type":"...","description":"..."}], "relations": [{"from":"...","fromType":"...","to":"...","toType":"...","type":"RELATION_LABEL","evidence":"..."}] } ] }
+
+The "passages" array must have exactly ${batch.length} objects, one per passage, in order.
 
 Rules:
 - Entity types are free-form (Concept, Person, Equation, Figure, Chapter, etc.).
@@ -78,7 +78,9 @@ ${passages}`;
             const r = await extractEntitiesBatch(prompt, extractionModel);
             if (Array.isArray(r) && r.length === batch.length) {
                 results = r;
-            } else if (r && !Array.isArray(r)) {
+            } else if (r && Array.isArray(r.passages) && r.passages.length === batch.length) {
+                results = r.passages;
+            } else if (r && !Array.isArray(r) && r.entities) {
                 results = [r];
             }
 
