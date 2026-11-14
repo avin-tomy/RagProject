@@ -135,11 +135,13 @@ app.post('/api/pdfs', authMiddleware, upload.single('file'), async (req, res) =>
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         const buildGraph = req.body?.buildGraph === 'true' || req.body?.buildGraph === true;
+        const docName = path.basename(req.file.path);
 
         const pdf = await Pdf.create({
             userId: user._id,
             originalName: req.file.originalname,
             storedPath: req.file.path,
+            docName,
             size: req.file.size,
             status: 'indexing',
             graphEnabled: buildGraph,
@@ -192,8 +194,44 @@ app.post('/api/pdfs/:id/build-graph', authMiddleware, async (req, res) => {
     try {
         const pdf = await Pdf.findOne({ _id: req.params.id, userId: req.user.id });
         if (!pdf) return res.status(404).json({ error: 'Not found' });
+        let docName = pdf.docName || pdf.originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
         if (!pdf.chunks || pdf.chunks.length === 0) {
-            return res.status(400).json({ error: 'No stored chunks. Re-upload the PDF first.' });
+            // Fallback: fetch chunks from Pinecone (for PDFs indexed before chunks were stored).
+            try {
+                const pinecone = createPineconeClient();
+                const pineconeIndex = pinecone.Index(pdf.indexName);
+                const stats = await pineconeIndex.describeIndexStats();
+                const count = stats.totalRecordCount || 0;
+                if (count === 0) {
+                    return res.status(400).json({ error: 'No vectors found in index. Re-upload the PDF first.' });
+                }
+                // Derive the doc name from the first vector id (format: <docName>-<index>).
+                const list = await pineconeIndex.listPaginated({ limit: 1 });
+                const firstId = list.vectors?.[0]?.id;
+                const derivedDocName = firstId ? firstId.replace(/-\d+$/, '') : docName;
+                const ids = Array.from({ length: count }, (_, i) => `${derivedDocName}-${i}`);
+                const fetched = await pineconeIndex.fetch(ids);
+                const records = fetched.records || {};
+                const chunks = [];
+                for (let i = 0; i < count; i++) {
+                    const rec = records[`${derivedDocName}-${i}`];
+                    const text = rec?.metadata?.text || rec?.metadata?.pageContent || '';
+                    if (text) {
+                        chunks.push({ text, page: rec.metadata?.page, pageEnd: rec.metadata?.pageEnd });
+                    }
+                }
+                if (chunks.length === 0) {
+                    return res.status(400).json({ error: 'Could not retrieve chunk text from Pinecone. Re-upload the PDF.' });
+                }
+                pdf.chunks = chunks;
+                pdf.docName = derivedDocName;
+                await pdf.save();
+                docName = derivedDocName;
+            } catch (err) {
+                console.error('Fallback chunk fetch failed:', err);
+                return res.status(400).json({ error: 'No stored chunks. Re-upload the PDF first.' });
+            }
         }
         if (!graph.getDriver()) {
             return res.status(400).json({ error: 'Neo4j is not configured on the server' });
@@ -205,7 +243,7 @@ app.post('/api/pdfs/:id/build-graph', authMiddleware, async (req, res) => {
             try {
                 await buildKnowledgeGraph({
                     indexName: pdf.indexName,
-                    docName: pdf.originalName,
+                    docName,
                     chunks: pdf.chunks,
                     totalPages: 0,
                     onProgress: async (phase, pct) => {

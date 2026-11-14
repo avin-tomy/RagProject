@@ -103,9 +103,23 @@ export default function Dashboard() {
           <h2>Upload PDF</h2>
           <p className="hint">Add a PDF to your workspace. Max 25 MB, PDF only.</p>
           <UploadZone onUpload={handleUpload} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: 'var(--muted)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={buildGraph} onChange={e => setBuildGraph(e.target.checked)} />
-            Build knowledge graph (slower, enables relationship queries)
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14,
+            padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+            border: `1px solid ${buildGraph ? 'var(--accent)' : 'var(--card-border)'}`,
+            background: buildGraph ? 'rgba(79,70,229,0.06)' : '#f9fafb',
+            transition: 'all .15s',
+          }}>
+            <input type="checkbox" checked={buildGraph} onChange={e => setBuildGraph(e.target.checked)}
+              style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--accent)' }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+                Build knowledge graph
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                Extracts entities & relationships for smarter answers. Slower indexing (~3-4 min for large PDFs).
+              </div>
+            </div>
           </label>
           {uploading && (
             <div style={{ marginTop: 12 }}>
