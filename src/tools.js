@@ -116,6 +116,106 @@ export function createCompareDocumentsTool(indexName) {
         }
     );
 }
+export function createPageContentTool(vectorStore, { scoreThreshold } = {}) {
+    return tool(
+        async ({ page, topK }) => {
+            const k = topK ?? 20;
+            console.log(`Fetching content for page ${page}...`);
+            const results = await vectorStore.similaritySearchWithScore('content', k, { page });
+            const docs = results.map(([doc]) => doc);
+            if (docs.length === 0) {
+                return JSON.stringify({ page, content: '', message: 'No content found for this page.' });
+            }
+            const content = docs.map((d) => d.pageContent).join('\n\n---\n\n');
+            const pages = [...new Set(docs.map(pageRange).filter(Boolean))];
+            return JSON.stringify({ page, content, pages, chunks: docs.length });
+        },
+        {
+            name: 'get_page_content',
+            description:
+                'Retrieve the full text content of a specific page number from the indexed document. ' +
+                'Use this when the user asks to see, read, or show a specific page, or when you need ' +
+                'the complete text of a page (not just search results).',
+            schema: z.object({
+                page: z.number().int().min(1).describe('The page number to retrieve'),
+                topK: z.number().int().min(1).max(50).optional().describe('Max chunks to fetch (default 20)'),
+            }),
+        }
+    );
+}
+
+export function createExtractTablesTool(vectorStore) {
+    return tool(
+        async ({ page }) => {
+            console.log(`Extracting tables from page ${page}...`);
+            const results = await vectorStore.similaritySearchWithScore('table', 20, { page });
+            const docs = results.map(([doc]) => doc);
+            if (docs.length === 0) {
+                return JSON.stringify({ page, tables: [], message: 'No content found for this page.' });
+            }
+            const content = docs.map((d) => d.pageContent).join('\n\n---\n\n');
+            // Detect table-like lines (multiple spaces, tabs, or pipe separators)
+            const tableLines = content.split('\n').filter((line) =>
+                /\s{2,}|\t|\|/.test(line) && line.trim().length > 10
+            );
+            return JSON.stringify({
+                page,
+                content,
+                tableLines,
+                hasTables: tableLines.length > 0,
+                message: tableLines.length > 0
+                    ? `Found ${tableLines.length} potential table lines on page ${page}.`
+                    : 'No table-like structures detected on this page.',
+            });
+        },
+        {
+            name: 'extract_tables',
+            description:
+                'Extract tabular data (fee schedules, rate cards, threshold tables, etc.) from a specific page. ' +
+                'Use this when the user asks about tables, fee slabs, rate cards, or structured data in the document.',
+            schema: z.object({
+                page: z.number().int().min(1).describe('The page number to extract tables from'),
+            }),
+        }
+    );
+}
+
+export function createCalculatorTool() {
+    return tool(
+        async ({ expression }) => {
+            // Safe math evaluation: only allow numbers, operators, parentheses, and Math functions
+            const sanitized = expression.replace(/\s/g, '');
+            if (!/^[0-9+\-*/().,%^eE]+$/.test(sanitized) && !/^[\d\s+\-*/().,%^eE]+$/.test(expression)) {
+                // Allow Math. prefix for functions
+                const cleaned = expression.replace(/Math\.\w+/g, '');
+                if (!/^[\d\s+\-*/().,%^eE]+$/.test(cleaned)) {
+                    return JSON.stringify({ error: 'Invalid expression. Only math operations are allowed.' });
+                }
+            }
+            try {
+                // eslint-disable-next-line no-new-func
+                const fn = new Function('Math', `"use strict"; return (${expression})`);
+                const result = fn(Math);
+                if (!Number.isFinite(result)) {
+                    return JSON.stringify({ expression, error: 'Result is not a finite number' });
+                }
+                return JSON.stringify({ expression, result: Number(result.toFixed(6)) });
+            } catch (err) {
+                return JSON.stringify({ expression, error: `Calculation failed: ${err.message}` });
+            }
+        },
+        {
+            name: 'calculate',
+            description:
+                'Perform mathematical calculations (percentages, interest, EMI, fees, limits). ' +
+                'Use this for any numeric computation. Supports +, -, *, /, %, parentheses, and Math functions (sqrt, pow, etc.). ' +
+                'Example: "100000 * 0.12" or "Math.pow(1.085, 20) * 1000000".',
+            schema: z.object({
+                expression: z.string().describe('A mathematical expression to evaluate'),
+            }),
+        }
+    );
+}
 export function createGraphTool(indexName) {
     return tool(
         async ({ cypher, params }) => {

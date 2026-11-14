@@ -15,7 +15,7 @@ import {
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
 import * as graph from './graph.js';
-import { createSearchTool, createGraphTool, createListDocumentsTool, createCompareDocumentsTool } from './tools.js';
+import { createSearchTool, createGraphTool, createListDocumentsTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
 
 // Short conversational messages (greetings, thanks, compliments) that should
 // never trigger a document search or a rewrite.
@@ -174,6 +174,9 @@ export function createChatSession({
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
+    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold }));
+    agentTools.push(createExtractTablesTool(vectorStore));
+    agentTools.push(createCalculatorTool());
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
         agentTools.push(createListDocumentsTool(indexName));
@@ -218,9 +221,12 @@ ${docList}
 
 You have these tools:
 - search_documents: retrieve passages relevant to a query (vector search). Use for factual questions.
+- get_page_content: retrieve the full text of a specific page number. Use when the user asks to see/read/show a specific page.
+- extract_tables: extract tabular data (fee schedules, rate cards, thresholds) from a specific page. Use when the user asks about tables, slabs, or structured data.
+- calculate: perform math calculations (percentages, interest, EMI, fees). Use for any numeric computation.
 - query_graph: run Cypher on the knowledge graph (relationships, traversal, aggregation).
 - list_documents: list all indexed documents.
-- compare_documents: find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?", "compare X and Y".
+- compare_documents: find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?".
 
 Rules:
 - For any factual question about a document, call search_documents at least once before answering.

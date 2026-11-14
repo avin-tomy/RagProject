@@ -128,7 +128,7 @@ export default function Dashboard() {
         <div>
           <h1>Dashboard</h1>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="dash-header-right">
           <div className="user">{user.email}</div>
           <button className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setConfirmLogout(true)}>Log out</button>
         </div>
@@ -177,49 +177,47 @@ export default function Dashboard() {
       {indexedPdfs.length > 0 && (
         <div className="panel" style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 22, marginBottom: 12 }}>Document Filter</h2>
-          <p className="hint">Select which documents to search. None selected = all documents.</p>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 12, borderBottom: '2px solid var(--accent)', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <p className="hint">Select which documents to search.</p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => setSelectedDocs([])}
+              style={{
+                fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                border: `1px solid ${selectedDocs.length === 0 ? 'var(--accent)' : 'var(--card-border)'}`,
+                background: selectedDocs.length === 0 ? 'var(--accent)' : '#f3f4f6',
+                color: selectedDocs.length === 0 ? '#fff' : 'var(--text)',
+              }}
+            >
+              All
+            </button>
+            {indexedPdfs.map(p => (
               <button
+                key={p.id}
                 type="button"
-                onClick={() => setSelectedDocs([])}
+                onClick={() => toggleDoc(p.id)}
                 style={{
                   fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                  border: `1px solid ${selectedDocs.length === 0 ? 'var(--accent)' : 'var(--card-border)'}`,
-                  background: selectedDocs.length === 0 ? 'var(--accent)' : '#f3f4f6',
-                  color: selectedDocs.length === 0 ? '#fff' : 'var(--text)',
+                  border: `1px solid ${selectedDocs.includes(p.id) ? 'var(--accent)' : 'var(--card-border)'}`,
+                  background: selectedDocs.includes(p.id) ? 'var(--accent)' : '#f3f4f6',
+                  color: selectedDocs.includes(p.id) ? '#fff' : 'var(--text)',
                 }}
               >
-                All
+                {p.name}
               </button>
-              {indexedPdfs.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => toggleDoc(p.id)}
-                  style={{
-                    fontSize: 13, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                    border: `1px solid ${selectedDocs.includes(p.id) ? 'var(--accent)' : 'var(--card-border)'}`,
-                    background: selectedDocs.includes(p.id) ? 'var(--accent)' : '#f3f4f6',
-                    color: selectedDocs.includes(p.id) ? '#fff' : 'var(--text)',
-                  }}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
+            ))}
             {selectedDocs.length === 0 && (
-              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching all documents</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', marginLeft: 4 }}>Searching all documents</span>
             )}
             {selectedDocs.length > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', marginLeft: 4 }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
             )}
           </div>
         </div>
       )}
 
       <div className="panel" style={{ marginTop: 20 }}>
-        <h2 style={{ fontSize: 22, marginBottom: 12 }}>Chat</h2>
+        <h2 style={{ fontSize: 22, marginBottom: 16 }}>Chat</h2>
         <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} selectedDocIds={selectedDocs} />
       </div>
 

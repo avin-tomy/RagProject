@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { jsPDF } from 'jspdf';
 import { useAuth } from '../context/AuthContext';
 
 export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
@@ -15,52 +14,6 @@ export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
   const endRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
-
-  const exportChat = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const margin = 40;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const maxWidth = pageWidth - margin * 2;
-    let y = margin;
-
-    doc.setFontSize(16);
-    doc.text('Chat Export', margin, y);
-    y += 24;
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(new Date().toLocaleString(), margin, y);
-    y += 20;
-    doc.setTextColor(0);
-
-    for (const m of messages) {
-      const role = m.role === 'user' ? 'You' : 'Assistant';
-      doc.setFontSize(11);
-      doc.setFont(undefined, 'bold');
-      doc.text(role, margin, y);
-      y += 16;
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(10);
-
-      const clean = m.content
-        .replace(/\*\*/g, '')
-        .replace(/#{1,6}\s*/g, '')
-        .replace(/`{1,3}/g, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-
-      const lines = doc.splitTextToSize(clean, maxWidth);
-      for (const line of lines) {
-        if (y > doc.internal.pageSize.getHeight() - margin) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += 14;
-      }
-      y += 10;
-    }
-
-    doc.save(`chat-export-${new Date().toISOString().slice(0, 10)}.pdf`);
-  };
 
   const send = async (e) => {
     e?.preventDefault();
@@ -98,11 +51,6 @@ export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
-          Export PDF
-        </button>
-      </div>
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
         {messages.map((m, i) => (
           <div key={i} style={{
