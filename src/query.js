@@ -188,14 +188,18 @@ export function createChatSession({
 
     async function agenticChat(question) {
         if (isConversational(question)) {
-            const reply = conversationalReply(question);
-            chatHistory.push(new HumanMessage(question), new AIMessage(reply));
+            const convPrompt = "You are a friendly assistant. Respond naturally and concisely to the user's message. Do not search any documents.";
+            const msgs = [new SystemMessage(convPrompt), ...chatHistory, new HumanMessage(question)];
+            const result = await withRetry(() => model.invoke(msgs), { label: 'Conversational reply', ...retryOptions });
+            const reply = result.ok ? toText(result.value.content) : conversationalReply(question);
+            const finalReply = reply.trim() ? reply : conversationalReply(question);
+            chatHistory.push(new HumanMessage(question), new AIMessage(finalReply));
             pruneHistory();
             if (streaming) {
-                onToken(reply);
+                onToken(finalReply);
                 onToken('\n');
             } else {
-                console.log(`\n${reply}\n`);
+                console.log(`\n${finalReply}\n`);
             }
             return;
         }
@@ -342,14 +346,18 @@ You have a tool called search_documents that retrieves relevant passages from th
         }
 
         if (isConversational(question)) {
-            const reply = conversationalReply(question);
-            chatHistory.push(new HumanMessage(question), new AIMessage(reply));
+            const convPrompt = "You are a friendly assistant. Respond naturally and concisely to the user's message. Do not search any documents.";
+            const msgs = [new SystemMessage(convPrompt), ...chatHistory, new HumanMessage(question)];
+            const result = await withRetry(() => model.invoke(msgs), { label: 'Conversational reply', ...retryOptions });
+            const reply = result.ok ? toText(result.value.content) : conversationalReply(question);
+            const finalReply = reply.trim() ? reply : conversationalReply(question);
+            chatHistory.push(new HumanMessage(question), new AIMessage(finalReply));
             pruneHistory();
             if (streaming) {
-                onToken(reply);
+                onToken(finalReply);
                 onToken('\n');
             } else {
-                console.log(`\n${reply}\n`);
+                console.log(`\n${finalReply}\n`);
             }
             return;
         }
