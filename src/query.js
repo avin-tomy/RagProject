@@ -134,7 +134,7 @@ export function createChatSession({
     maxAgentSteps = 3,
     indexName = null,
     documentFilter = null,
-    documents = null,
+    documents = [],
 } = {}) {
     if (!vectorStore || typeof vectorStore.similaritySearchWithScore !== 'function') {
         throw new Error('createChatSession requires a vectorStore');
@@ -171,12 +171,12 @@ export function createChatSession({
     const chain = answerPrompt.pipe(model).pipe(new StringOutputParser());
 
     const searchTool = agentic
-        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter })
+        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter, documents })
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
-    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter }));
-    agentTools.push(createExtractTablesTool(vectorStore, { documentFilter }));
+    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents }));
+    agentTools.push(createExtractTablesTool(vectorStore, { documentFilter, documents }));
     agentTools.push(createCalculatorTool());
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
@@ -215,7 +215,7 @@ export function createChatSession({
         const pageNum = parsePageNumber(question);
         if (pageNum) {
             try {
-                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents });
                 const raw = await pageTool.invoke({ page: pageNum });
                 const parsed = JSON.parse(raw);
                 if ((parsed.chunks ?? 0) > 0) {
@@ -429,7 +429,7 @@ Rules:
         const pageNum = parsePageNumber(question);
         if (pageNum) {
             try {
-                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents });
                 const raw = await pageTool.invoke({ page: pageNum });
                 const parsed = JSON.parse(raw);
                 if ((parsed.chunks ?? 0) > 0) {
