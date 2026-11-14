@@ -25,7 +25,6 @@ export default function Chat() {
       <header className="dash-header">
         <div>
           <h1>Chat</h1>
-          <div className="user">Ask questions about your indexed PDFs</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => navigate('/dashboard')}>Dashboard</button>

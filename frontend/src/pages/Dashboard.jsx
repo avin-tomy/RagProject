@@ -175,7 +175,6 @@ export default function Dashboard() {
 
       <div className="panel" style={{ marginTop: 20 }}>
         <h2>Chat</h2>
-        <p className="hint">Ask questions about your indexed PDFs.</p>
         <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} />
       </div>
       {confirmLogout && (
