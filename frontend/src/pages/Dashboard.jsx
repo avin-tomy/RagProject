@@ -127,7 +127,8 @@ export default function Dashboard() {
         <div>
           <h1>Dashboard</h1>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="user">{user.email}</div>
           <button className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setConfirmLogout(true)}>Log out</button>
         </div>
       </header>

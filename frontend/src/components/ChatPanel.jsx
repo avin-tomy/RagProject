@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { jsPDF } from 'jspdf';
+import { useAuth } from '../context/AuthContext';
 
 export default function ChatPanel({ pdfs = [] }) {
   const { authFetch } = useAuth();
