@@ -16,25 +16,7 @@ export default function ChatPanel({ pdfs = [] }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
 
-  const exportChat = (format = 'pdf') => {
-    if (format === 'md') {
-      const md = messages.map(m => {
-        const role = m.role === 'user' ? '**You**' : '**Assistant**';
-        return `${role}:\n\n${m.content}`;
-      }).join('\n\n---\n\n');
-      const blob = new Blob([`# Chat Export\n\n${md}\n`], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    // PDF export
+  const exportChat = () => {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const margin = 40;
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -155,10 +137,7 @@ export default function ChatPanel({ pdfs = [] }) {
             <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
           )}
         </div>
-        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => exportChat('md')} disabled={messages.length <= 1}>
-          Export MD
-        </button>
-        <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => exportChat('pdf')} disabled={messages.length <= 1}>
+        <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
           Export PDF
         </button>
       </div>
