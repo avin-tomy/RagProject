@@ -59,25 +59,28 @@ export async function upsertDocument(indexName, name, pageCount, documentId) {
     }
 }
 
-export async function upsertChunk(indexName, docName, chunk, documentId) {
-    if (!driver) return;
+export async function batchUpsertChunks(indexName, docName, chunks) {
+    if (!driver || !chunks.length) return;
     const session = driver.session();
     try {
         await session.run(
-            `MERGE (c:Chunk {indexName: $indexName, id: $id})
-             SET c.text = $text, c.page = $page, c.pageEnd = $pageEnd, c.index = $idx, c.documentId = $documentId
-             WITH c
+            `UNWIND $rows AS row
+             MERGE (c:Chunk {indexName: $indexName, id: row.id})
+             SET c.text = row.text, c.page = row.page, c.pageEnd = row.pageEnd, c.index = row.idx, c.documentId = row.documentId
+             WITH c, row
              MATCH (d:Document {indexName: $indexName, name: $docName})
              MERGE (c)-[:PART_OF]->(d)`,
             {
                 indexName,
-                id: chunk.id,
-                text: chunk.text,
-                page: chunk.page,
-                pageEnd: chunk.pageEnd ?? null,
-                idx: chunk.index,
                 docName,
-                documentId: documentId || '',
+                rows: chunks.map((gc, i) => ({
+                    id: gc.id,
+                    text: gc.text,
+                    page: gc.page,
+                    pageEnd: gc.pageEnd ?? null,
+                    idx: gc.index,
+                    documentId: gc.documentId || '',
+                })),
             }
         );
     } finally {
@@ -159,6 +162,13 @@ export async function clearGraphDocument(indexName, documentId) {
              WHERE NOT EXISTS { MATCH (c:Chunk {indexName: $indexName, documentId: $documentId}) }
              DELETE d`,
             { indexName, documentId }
+        );
+        // Remove entities that are no longer mentioned by any remaining chunk.
+        await session.run(
+            `MATCH (e:Entity {indexName: $indexName})
+             WHERE NOT EXISTS { MATCH (:Chunk {indexName: $indexName})-[:MENTIONS]->(e) }
+             DETACH DELETE e`,
+            { indexName }
         );
     } finally {
         await session.close();

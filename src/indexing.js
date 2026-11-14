@@ -422,7 +422,8 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
 
     // Deterministic IDs make upserts idempotent: rerunning indexing overwrites
     // the same vectors instead of adding a new copy of every chunk.
-    const chunkIds = chunkedDocs.map((_, index) => `${pdfFileName}-${index}`);
+    const idPrefix = documentId || pdfFileName;
+    const chunkIds = chunkedDocs.map((_, index) => `${idPrefix}-${index}`);
 
     console.log('Configuring Gemini embedding model...');
     const embeddingModel = createEmbeddingModel();
@@ -562,18 +563,21 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
         report('done', 100);
     }
 
-    const verification = await verifyIndexedCount(pineconeIndex, upserted.succeeded);
-    if (!verification.ok) {
-        console.error(
-            `\nIndex verification failed after ${verification.attempts} attempt(s): ` +
-            `${verification.message}`
-        );
-        console.error('The index may be incomplete. Re-run `npm run index` to rebuild it.');
-        process.exitCode = 1;
-        return;
+    if (documentId) {
+        console.log(`Indexing complete: ${upserted.succeeded} chunks stored in Pinecone for document ${documentId}`);
+    } else {
+        const verification = await verifyIndexedCount(pineconeIndex, upserted.succeeded);
+        if (!verification.ok) {
+            console.error(
+                `\nIndex verification failed after ${verification.attempts} attempt(s): ` +
+                `${verification.message}`
+            );
+            console.error('The index may be incomplete. Re-run `npm run index` to rebuild it.');
+            process.exitCode = 1;
+            return;
+        }
+        console.log(`Indexing complete: ${verification.count} chunks stored in Pinecone`);
     }
-
-    console.log(`Indexing complete: ${verification.count} chunks stored in Pinecone`);
 }
 
 // Module used as a library by the web server.

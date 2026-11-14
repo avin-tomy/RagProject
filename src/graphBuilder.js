@@ -29,12 +29,10 @@ export async function buildKnowledgeGraph({ indexName, docName, documentId, chun
         index: i,
     }));
 
-    for (const gc of graphChunks) {
-        await graph.upsertChunk(indexName, docName, gc, documentId);
-    }
+    await graph.batchUpsertChunks(indexName, docName, graphChunks.map(gc => ({...gc, documentId: documentId || ''})));
 
     const MIN_CHUNK_LEN = 100;
-    const CONC = Number(concurrency) || Number(process.env.GRAPH_CONCURRENCY) || 5;
+    const CONC = Number(concurrency) || Number(process.env.GRAPH_CONCURRENCY) || 8;
     const BS = Math.max(1, Number(batchSize) || Number(process.env.GRAPH_BATCH_SIZE) || 3);
 
     const allEntities = [];
@@ -58,7 +56,7 @@ export async function buildKnowledgeGraph({ indexName, docName, documentId, chun
     async function worker() {
         while (cursor < batches.length) {
             const batch = batches[cursor++];
-            const passages = batch.map((b, j) => `--- Passage ${j + 1} ---\n${(b.doc?.text || b.doc || '').slice(0, 1500)}`).join('\n\n');
+            const passages = batch.map((b, j) => `--- Passage ${j + 1} ---\n${(b.doc?.text || b.doc || '').slice(0, 1000)}`).join('\n\n');
             const prompt = `You are an information extraction engine. Given ${batch.length} passages, extract entities and relations from EACH passage.
 
 Return a JSON array with exactly ${batch.length} objects, one per passage, in order:
