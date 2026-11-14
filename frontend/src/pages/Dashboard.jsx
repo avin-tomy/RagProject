@@ -217,7 +217,6 @@ export default function Dashboard() {
       )}
 
       <div className="panel" style={{ marginTop: 20 }}>
-        <h2 style={{ fontSize: 22, marginBottom: 16 }}>Chat</h2>
         <ChatPanel pdfs={pdfs.map(p => ({ id: p.id || p._id, name: p.name, status: p.status }))} selectedDocIds={selectedDocs} />
       </div>
 

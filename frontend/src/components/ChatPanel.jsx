@@ -4,16 +4,44 @@ import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
 
 export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
-  const { authFetch } = useAuth();
-  const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' },
-  ]);
+  const { authFetch, user } = useAuth();
+  const storageKey = user ? `rag_chat_${user.id}` : null;
+  const [messages, setMessages] = useState(() => {
+    if (!storageKey) return [{ role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' }];
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [{ role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' }];
+  });
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef(null);
 
+  useEffect(() => {
+    if (storageKey) localStorage.setItem(storageKey, JSON.stringify(messages));
+  }, [messages, storageKey]);
+
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
+
+  const clearChat = () => {
+    const initial = [{ role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' }];
+    setMessages(initial);
+    if (storageKey) localStorage.removeItem(storageKey);
+  };
+
+  // Clear conversation when the document filter changes, so answers
+  // don't mix context from different documents.
+  const prevDocsRef = useRef(selectedDocIds);
+  useEffect(() => {
+    const prev = prevDocsRef.current;
+    const changed = prev.join(',') !== selectedDocIds.join(',');
+    prevDocsRef.current = selectedDocIds;
+    if (changed && messages.length > 1) {
+      setMessages([{ role: 'assistant', content: 'Hi! Ask me anything about your indexed PDFs.' }]);
+    }
+  }, [selectedDocIds]);
 
   const send = async (e) => {
     e?.preventDefault();
@@ -51,6 +79,12 @@ export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 22, margin: 0 }}>Chat</h2>
+        <button className="btn btn-ghost" style={{ width: 'auto', padding: '8px 16px', fontSize: 13 }} onClick={clearChat} disabled={messages.length <= 1}>
+          Clear Chat
+        </button>
+      </div>
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
         {messages.map((m, i) => (
           <div key={i} style={{
