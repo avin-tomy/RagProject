@@ -107,9 +107,10 @@ export default function ChatPanel({ pdfs = [] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {indexedPdfs.length > 0 && (
             <>
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Filter:</span>
               <button
                 type="button"
                 onClick={() => setSelectedDocs([])}
@@ -144,6 +145,9 @@ export default function ChatPanel({ pdfs = [] }) {
           )}
           {indexedPdfs.length > 0 && selectedDocs.length > 0 && (
             <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
+          )}
+          {indexedPdfs.length === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Upload and index a PDF to enable document filtering</span>
           )}
         </div>
         <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
