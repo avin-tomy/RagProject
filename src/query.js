@@ -245,7 +245,7 @@ export function createChatSession({
 
         const docList = Array.isArray(documents) && documents.length
             ? documents.map((d) => `- ${d.name}${d.documentId ? ` (id: ${d.documentId})` : ''}`).join('\n')
-            : '(none)';
+            : '(no documents indexed yet — tell the user to upload a PDF first)';
 
         const AGENTIC_SYSTEM_PROMPT = `You are a helpful assistant answering questions about the provided documentation.
 
@@ -355,6 +355,7 @@ Rules:
                 }
             }
             if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
+        if (!hasContext) finalAnswer = FALLBACK_ANSWER;
         }
 
         if (searched && !hasContext && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
@@ -363,6 +364,7 @@ Rules:
         }
 
         if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
+        if (!hasContext) finalAnswer = FALLBACK_ANSWER;
 
         chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();

@@ -377,6 +377,12 @@ app.post('/api/query', authMiddleware, async (req, res) => {
 
         // Document list for the agent's context (from MongoDB, always available).
         const userPdfs = await Pdf.find({ userId: user._id, status: 'indexed' }).select('originalName _id');
+        if (userPdfs.length === 0) {
+            return res.json({
+                answer: 'No documents are indexed yet. Please upload a PDF first, then ask your question.',
+                history: [...history, { role: 'user', content: question }, { role: 'assistant', content: 'No documents are indexed yet. Please upload a PDF first, then ask your question.' }],
+            });
+        }
         const documents = userPdfs.map((p) => ({ name: p.originalName, documentId: p._id.toString() }));
 
         const session = createChatSession({
