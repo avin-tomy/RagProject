@@ -19,7 +19,6 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
     const docNames = (documents || []).map((d) => d.name).join(', ') || 'none';
     return tool(
         async ({ query, topK, document }) => {
-            const allDocs = documents || [];
             const q = (query || '').trim();
             if (!q) {
                 return JSON.stringify({ query: '', context: '', pages: [], scoreRange: null, count: 0 });
@@ -30,7 +29,7 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
             if (document) {
                 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const dn = norm(document);
-                const matched = docs.find((d) => {
+                const matched = (documents || []).find((d) => {
                     const n = norm(d.name);
                     return n === dn || n.includes(dn) || dn.includes(n);
                 });
@@ -42,7 +41,15 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
 
             console.log(`Searching the index for: "${q}" (top ${k})...` + (filter ? ` [filter: ${JSON.stringify(filter)}]` : ''));
 
-            const results = await vectorStore.similaritySearchWithScore(q, k, filter || undefined);
+            let results = await vectorStore.similaritySearchWithScore(q, k, filter || undefined);
+            // If a document filter returned nothing, retry without it (old index).
+            if (results.length === 0 && filter && filter.documentId) {
+                console.log('  Filtered search returned 0; retrying without document filter...');
+                const retryResults = await vectorStore.similaritySearchWithScore(q, k, undefined);
+                if (retryResults.length > 0) {
+                    results = retryResults;
+                }
+            }
             const docs = results
                 .filter(([, score]) => score >= scoreThreshold)
                 .map(([doc]) => doc);
@@ -86,6 +93,28 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
     );
 }
 
+export function createDocumentListTool(documents = []) {
+    return tool(
+        async () => {
+            if (!documents || documents.length === 0) {
+                return JSON.stringify({ documents: [], message: 'No documents indexed.' });
+            }
+            return JSON.stringify({
+                documents: documents.map((d) => ({ name: d.name, id: d.documentId })),
+                count: documents.length,
+            });
+        },
+        {
+            name: 'list_documents',
+            description:
+                'List all indexed documents (PDFs) available for search. Use this to discover ' +
+                'document names, then pass the exact name to search_documents or get_page_content ' +
+                'via the "document" parameter to search a specific document.',
+            schema: z.object({}),
+        }
+    );
+}
+
 const WRITE_KEYWORDS = /\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|CALL\s+db\.|LOAD\s+CSV|FOREACH)\b/i;
 
 export function createGraphTool(indexName) {
@@ -118,21 +147,6 @@ export function createGraphTool(indexName) {
                 cypher: z.string().describe('A read-only Cypher query'),
                 params: z.string().optional().describe('JSON string of query parameters (default "{}")'),
             }),
-        }
-    );
-}
-
-export function createListDocumentsTool(indexName) {
-    return tool(
-        async () => {
-            if (!graph.getDriver()) return JSON.stringify({ error: 'Graph not configured' });
-            const docs = await graph.listDocuments(indexName);
-            return JSON.stringify({ documents: docs, count: docs.length });
-        },
-        {
-            name: 'list_documents',
-            description: 'List all documents (PDFs) indexed in the knowledge graph. Use this to discover what documents are available before comparing or cross-referencing.',
-            schema: z.object({}),
         }
     );
 }
@@ -192,14 +206,18 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
                 }
             }
 
-            const results = await vectorStore.similaritySearchWithScore('content', k, filter);
+            let results = await vectorStore.similaritySearchWithScore('content', k, filter);
+            if (results.length === 0 && filter.documentId) {
+                const retryFilter = { page };
+                results = await vectorStore.similaritySearchWithScore('content', k, retryFilter);
+            }
             const pageDocs = results.map(([doc]) => doc);
             if (pageDocs.length === 0) {
                 return JSON.stringify({ page, content: '', message: 'No content found for this page.' });
             }
             const content = pageDocs.map((d) => d.pageContent).join('\n\n---\n\n');
             const pages = [...new Set(pageDocs.map(pageRange).filter(Boolean))];
-            return JSON.stringify({ page, content, pages, chunks: docs.length });
+            return JSON.stringify({ page, content, pages, chunks: pageDocs.length });
         },
         {
             name: 'get_page_content',

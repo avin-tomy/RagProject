@@ -15,7 +15,7 @@ import {
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
 import { parsePageNumber } from './utils/documentMatcher.js';
-import { createSearchTool, createGraphTool, createListDocumentsTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
+import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
 import * as graph from './graph.js';
 
 // Short conversational messages (greetings, thanks, compliments) that should
@@ -175,12 +175,15 @@ export function createChatSession({
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
+    // Always provide document listing so the agent can discover available docs.
+    if (agentic && documents && documents.length > 0) {
+        agentTools.push(createDocumentListTool(documents));
+    }
     agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents }));
     agentTools.push(createExtractTablesTool(vectorStore, { documentFilter, documents }));
     agentTools.push(createCalculatorTool());
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
-        agentTools.push(createListDocumentsTool(indexName));
         agentTools.push(createCompareDocumentsTool(indexName));
     }
     const toolByName = Object.fromEntries(agentTools.map((t) => [t.name, t]));
