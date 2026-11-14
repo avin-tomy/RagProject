@@ -210,6 +210,39 @@ export function createChatSession({
             return;
         }
 
+        // Detect page-specific questions and pre-fetch that page's content.
+        const pageMatch = question.match(/page\s+(\d+)/i);
+        if (pageMatch) {
+            const pageNum = parseInt(pageMatch[1], 10);
+            try {
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
+                const raw = await pageTool.invoke({ page: pageNum });
+                const parsed = JSON.parse(raw);
+                if ((parsed.chunks ?? 0) > 0) {
+                    const ctx = parsed.content;
+                    const messages = [
+                        new SystemMessage('You are a helpful assistant. Answer the question based on the provided page content. Cite the page number.'),
+                        ...chatHistory.slice(-6),
+                        new HumanMessage(`Context from page ${pageNum}:\n\n${ctx}\n\nQuestion: ${question}`),
+                    ];
+                    const result = await withRetry(() => model.invoke(messages), { label: 'Answering from page', ...retryOptions });
+                    const answer = result.ok ? toText(result.value.content) : FALLBACK_ANSWER;
+                    const finalAnswer = answer.trim() ? answer : FALLBACK_ANSWER;
+                    chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
+                    pruneHistory();
+                    if (streaming) {
+                        onToken(finalAnswer);
+                        onToken('\n');
+                    } else {
+                        console.log(`\n${finalAnswer}\n`);
+                    }
+                    return;
+                }
+            } catch (e) {
+                console.warn('Page pre-fetch failed:', e.message);
+            }
+        }
+
         const docList = Array.isArray(documents) && documents.length
             ? documents.map((d) => `- ${d.name}${d.documentId ? ` (id: ${d.documentId})` : ''}`).join('\n')
             : '(none)';
@@ -389,6 +422,73 @@ Rules:
         }
 
         const recentHistory = chatHistory.slice(-6);
+
+        // Detect page-specific questions and pre-fetch that page's content.
+        const pageMatch = question.match(/page\s+(\d+)/i);
+        if (pageMatch) {
+            const pageNum = parseInt(pageMatch[1], 10);
+            try {
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
+                const raw = await pageTool.invoke({ page: pageNum });
+                const parsed = JSON.parse(raw);
+                if ((parsed.chunks ?? 0) > 0) {
+                    const ctx = parsed.content;
+                    console.log(`Using full content of page ${pageNum}.`);
+                    const context = ctx;
+                    console.log('Generating answer with Gemini...');
+                    const payload = { context: `[Page ${pageNum}]\n${context}`, question, chat_history: recentHistory };
+                    let answerResult;
+                    if (streaming) {
+                        let wroteChunk = false;
+                        answerResult = await withRetry(async () => {
+                            wroteChunk = false;
+                            let answer = '';
+                            try {
+                                const stream = await chain.stream(payload);
+                                for await (const chunk of stream) {
+                                    if (!chunk) continue;
+                                    wroteChunk = true;
+                                    answer += chunk;
+                                    onToken(chunk);
+                                }
+                            } catch (err) {
+                                if (wroteChunk) {
+                                    onToken('\n');
+                                    const wrapped = new Error(errorMessage(err));
+                                    wrapped.retryable = false;
+                                    throw wrapped;
+                                }
+                                throw err;
+                            }
+                            return answer;
+                        }, { label: 'Generating answer', ...retryOptions });
+                    } else {
+                        answerResult = await withRetry(
+                            () => chain.invoke(payload),
+                            { label: 'Generating answer', ...retryOptions }
+                        );
+                    }
+                    if (!answerResult.ok) {
+                        throw new Error(`Gemini answer failed: ${answerResult.message}`);
+                    }
+                    const answer = answerResult.value || FALLBACK_ANSWER;
+                    const finalAnswer = answer.trim() ? answer : FALLBACK_ANSWER;
+                    chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
+                    pruneHistory();
+                    if (streaming) {
+                        if (finalAnswer === FALLBACK_ANSWER && !answer.trim()) {
+                            onToken(FALLBACK_ANSWER);
+                        }
+                        onToken('\n');
+                    } else {
+                        console.log(`\n${finalAnswer}\n`);
+                    }
+                    return;
+                }
+            } catch (e) {
+                console.warn('Page pre-fetch failed:', e.message);
+            }
+        }
 
         console.log(`Embedding the query and searching Pinecone for the top ${topK} matching chunks...`);
         const searchResult = await withRetry(
