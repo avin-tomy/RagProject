@@ -39,7 +39,7 @@ export default function Dashboard() {
   useEffect(() => {
     const hasIndexing = pdfs.some(p => p.status === 'indexing' || p.status === 'uploading');
     if (!hasIndexing) return;
-    const t = setInterval(loadPdfs, 3000);
+    const t = setInterval(loadPdfs, 1000);
     return () => clearInterval(t);
   }, [pdfs, loadPdfs]);
 
@@ -78,6 +78,15 @@ export default function Dashboard() {
     } catch (e) { console.error(e); }
   };
 
+  const handleBuildGraph = async (id) => {
+    try {
+      const res = await authFetch(`/api/pdfs/${id}/build-graph`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to start graph build'); return; }
+      loadPdfs();
+    } catch (e) { console.error(e); alert('Network error'); }
+  };
+
   return (
     <div className="dash">
       <header className="dash-header">
@@ -111,7 +120,7 @@ export default function Dashboard() {
         <div className="panel">
           <h2>Your PDFs</h2>
           <p className="hint">{pdfs.length} file{pdfs.length === 1 ? '' : 's'} in your workspace.</p>
-          <PdfList items={pdfs.map(p => ({ id: p.id || p._id, name: p.name, size: p.size, uploadedAt: p.uploadedAt, status: p.status, phase: p.phase, progress: p.progress, graphEnabled: p.graphEnabled }))} onRemove={removePdf} />
+          <PdfList items={pdfs.map(p => ({ id: p.id || p._id, name: p.name, size: p.size, uploadedAt: p.uploadedAt, status: p.status, phase: p.phase, progress: p.progress, graphEnabled: p.graphEnabled }))} onRemove={removePdf} onBuildGraph={handleBuildGraph} />
         </div>
       </div>
 

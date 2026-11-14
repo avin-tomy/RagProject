@@ -171,3 +171,98 @@ export async function getGraphStats(indexName) {
         await session.close();
     }
 }
+// ---------- Batch helpers for faster graph building ----------
+
+export async function batchUpsertEntities(indexName, entities) {
+    if (!driver || !entities.length) return;
+    const seen = new Set();
+    const unique = [];
+    for (const e of entities) {
+        if (!e?.name || !e?.type) continue;
+        const key = `${e.name}||${e.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push({ name: e.name, type: e.type, description: e.description || '' });
+    }
+    if (!unique.length) return;
+    const session = driver.session();
+    try {
+        await session.run(
+            `UNWIND $rows AS row
+             MERGE (e:Entity {indexName: $indexName, name: row.name, type: row.type})
+             SET e.description = row.description`,
+            { indexName, rows: unique }
+        );
+    } finally {
+        await session.close();
+    }
+}
+
+export async function batchLinkChunkEntities(indexName, links) {
+    if (!driver || !links.length) return;
+    const seen = new Set();
+    const unique = [];
+    for (const l of links) {
+        if (!l?.chunkId || !l?.name || !l?.type) continue;
+        const key = `${l.chunkId}||${l.name}||${l.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(l);
+    }
+    if (!unique.length) return;
+    const session = driver.session();
+    try {
+        await session.run(
+            `UNWIND $rows AS row
+             MATCH (c:Chunk {indexName: $indexName, id: row.chunkId})
+             MATCH (e:Entity {indexName: $indexName, name: row.name, type: row.type})
+             MERGE (c)-[:MENTIONS]->(e)`,
+            { indexName, rows: unique }
+        );
+    } finally {
+        await session.close();
+    }
+}
+
+export async function batchUpsertRelations(indexName, relations) {
+    if (!driver || !relations.length) return;
+    const seen = new Set();
+    const unique = [];
+    for (const r of relations) {
+        if (!r?.from || !r?.to || !r?.type) continue;
+        const key = `${r.from}||${r.fromType}||${r.to}||${r.toType}||${r.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(r);
+    }
+    if (!unique.length) return;
+    const session = driver.session();
+    try {
+        const endpoints = [];
+        const epSeen = new Set();
+        for (const r of unique) {
+            for (const [name, type] of [[r.from, r.fromType], [r.to, r.toType]]) {
+                const key = `${name}||${type}`;
+                if (epSeen.has(key)) continue;
+                epSeen.add(key);
+                endpoints.push({ name, type, description: '' });
+            }
+        }
+        await session.run(
+            `UNWIND $rows AS row
+             MERGE (e:Entity {indexName: $indexName, name: row.name, type: row.type})
+             SET e.description = row.description`,
+            { indexName, rows: endpoints }
+        );
+        await session.run(
+            `UNWIND $rows AS row
+             MATCH (a:Entity {indexName: $indexName, name: row.from, type: row.fromType})
+             MATCH (b:Entity {indexName: $indexName, name: row.to, type: row.toType})
+             MERGE (a)-[r:RELATES_TO {type: row.type}]->(b)
+             SET r.evidence = row.evidence`,
+            { indexName, rows: unique }
+        );
+    } finally {
+        await session.close();
+    }
+}

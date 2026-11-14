@@ -10,6 +10,7 @@ const pdfSchema = new mongoose.Schema({
     progress: { type: Number, default: 0 },
     error: { type: String },
     graphEnabled: { type: Boolean, default: false },
+    chunks: { type: [{ text: String, page: Number, pageEnd: Number }], default: [] },
     indexName: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now },
 }, { timestamps: true });

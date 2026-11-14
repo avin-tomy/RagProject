@@ -23,25 +23,20 @@ Rules:
 Passage:
 `;
 
-export async function extractEntities(chunkText, model) {
+export async function extractEntitiesBatch(prompt, model) {
     const m = model || createExtractionModel();
-    const text = (chunkText || '').slice(0, 2000);
     const result = await withRetry(
         async () => {
-            const res = await m.invoke(EXTRACTION_PROMPT + text);
+            const res = await m.invoke(prompt);
             const raw = typeof res.content === 'string' ? res.content : (Array.isArray(res.content) ? res.content.map(c => c.text || c).join('') : String(res.content));
             const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
             return JSON.parse(cleaned);
         },
-        { label: 'Entity extraction', maxAttempts: 2, baseDelayMs: 500 }
+        { label: 'Entity extraction (batch)', maxAttempts: 2, baseDelayMs: 500 }
     );
     if (!result.ok) {
-        console.warn('Entity extraction failed:', result.message);
-        return { entities: [], relations: [] };
+        console.warn('Batch entity extraction failed:', result.message);
+        return [];
     }
-    const data = result.value || {};
-    return {
-        entities: Array.isArray(data.entities) ? data.entities : [],
-        relations: Array.isArray(data.relations) ? data.relations : [],
-    };
+    return result.value;
 }

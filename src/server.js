@@ -26,6 +26,7 @@ import {
 import { PineconeStore } from '@langchain/pinecone';
 import { createChatSession } from './query.js';
 import { indexing } from './indexing.js';
+import { buildKnowledgeGraph } from './graphBuilder.js';
 import * as graph from './graph.js';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
@@ -156,6 +157,9 @@ app.post('/api/pdfs', authMiddleware, upload.single('file'), async (req, res) =>
                     onProgress: async (phase, pct) => {
                         await Pdf.findByIdAndUpdate(pdf._id, { phase, progress: pct });
                     },
+                    onChunks: async (chunks) => {
+                        await Pdf.findByIdAndUpdate(pdf._id, { chunks });
+                    },
                 });
                 await Pdf.findByIdAndUpdate(pdf._id, { status: 'indexed', phase: 'done', progress: 100 });
             } catch (err) {
@@ -178,6 +182,44 @@ app.get('/api/pdfs', authMiddleware, async (req, res) => {
     try {
         const pdfs = await Pdf.find({ userId: req.user.id }).sort({ createdAt: -1 });
         res.json({ pdfs: pdfs.map(serializePdf) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------- Build graph for an already-indexed PDF ----------
+app.post('/api/pdfs/:id/build-graph', authMiddleware, async (req, res) => {
+    try {
+        const pdf = await Pdf.findOne({ _id: req.params.id, userId: req.user.id });
+        if (!pdf) return res.status(404).json({ error: 'Not found' });
+        if (!pdf.chunks || pdf.chunks.length === 0) {
+            return res.status(400).json({ error: 'No stored chunks. Re-upload the PDF first.' });
+        }
+        if (!graph.getDriver()) {
+            return res.status(400).json({ error: 'Neo4j is not configured on the server' });
+        }
+
+        await Pdf.findByIdAndUpdate(pdf._id, { status: 'indexing', phase: 'graph', progress: 0, graphEnabled: true });
+
+        (async () => {
+            try {
+                await buildKnowledgeGraph({
+                    indexName: pdf.indexName,
+                    docName: pdf.originalName,
+                    chunks: pdf.chunks,
+                    totalPages: 0,
+                    onProgress: async (phase, pct) => {
+                        await Pdf.findByIdAndUpdate(pdf._id, { phase, progress: pct });
+                    },
+                });
+                await Pdf.findByIdAndUpdate(pdf._id, { status: 'indexed', graphEnabled: true, phase: 'done', progress: 100 });
+            } catch (err) {
+                console.error('Graph build failed for', pdf._id, err);
+                await Pdf.findByIdAndUpdate(pdf._id, { status: 'indexed', phase: 'failed', error: err.message });
+            }
+        })();
+
+        res.json({ ok: true, message: 'Graph build started' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

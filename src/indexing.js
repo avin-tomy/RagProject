@@ -17,7 +17,7 @@ import {
 import { chunkPages, cleanPageText, isTableOfContents, CHUNK_SIZE } from './chunking.js';
 import { loadPdfPages } from './pdfLoader.js';
 import * as graph from './graph.js';
-import { extractEntities } from './entityExtractor.js';
+import { extractEntitiesBatch } from './entityExtractor.js';
 import {
     withRetry,
     validateRetryOptions,
@@ -369,7 +369,7 @@ export async function clearIndexVectors(pineconeIndex, existingCount, options = 
     return { ok: false, message: result.message };
 }
 
-export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress } = {}) {
+export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress, onChunks } = {}) {
     const resolvedPdfPath = resolvePdfPath(pdfPath);
     const pdfFileName = path.basename(resolvedPdfPath);
 
@@ -518,72 +518,30 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
     if (buildGraph === undefined) buildGraph = process.env.GRAPH_RAG === 'true';
 
     if (buildGraph && graph.getDriver()) {
-        console.log('\\nBuilding knowledge graph...');
+        console.log('\nBuilding knowledge graph...');
         report('vectors', 100);
         report('graph', 0);
-        await graph.clearGraph(indexName);
-        await graph.upsertDocument(indexName, pdfFileName, totalPages);
-        const extractionModel = createExtractionModel();
         const graphChunks = chunkedDocs.map((doc, i) => ({
-            id: `${pdfFileName}-${i}`,
             text: doc.pageContent,
             page: doc.metadata?.page,
             pageEnd: doc.metadata?.pageEnd,
-            index: i,
         }));
-        for (const gc of graphChunks) {
-            await graph.upsertChunk(indexName, pdfFileName, gc);
+        // Save chunks to Pdf doc is handled by server via onChunks callback
+        if (typeof onChunks === 'function') {
+            await onChunks(graphChunks);
         }
-
-        const MIN_CHUNK_LEN = 80;
-        const CONCURRENCY = 5;
-        let totalEntities = 0;
-        let totalRels = 0;
-        const queue = graphChunks
-            .map((gc, i) => ({ gc, doc: chunkedDocs[i], i }))
-            .filter(({ doc }) => (doc.pageContent || '').trim().length >= MIN_CHUNK_LEN);
-
-        let cursor = 0;
-        let doneCount = 0;
-        async function worker() {
-            while (cursor < queue.length) {
-                const { gc, doc, i } = queue[cursor++];
-                const { entities, relations } = await extractEntities(doc.pageContent, extractionModel);
-                const chunkId = gc.id;
-                for (const e of entities) {
-                    if (!e?.name || !e?.type) continue;
-                    await graph.upsertEntity(indexName, e);
-                    await graph.linkChunkEntity(indexName, chunkId, e.name, e.type);
-                    totalEntities++;
-                }
-                for (const r of relations) {
-                    if (!r?.from || !r?.to || !r?.type) continue;
-                    const fromType = r.fromType || entities.find(e => e.name === r.from)?.type || 'Entity';
-                    const toType = r.toType || entities.find(e => e.name === r.to)?.type || 'Entity';
-                    await graph.upsertEntity(indexName, { name: r.from, type: fromType, description: '' });
-                    await graph.upsertEntity(indexName, { name: r.to, type: toType, description: '' });
-                    await graph.upsertRelation(indexName, {
-                        from: r.from, fromType, to: r.to, toType,
-                        type: r.type, evidence: r.evidence || '',
-                    });
-                    totalRels++;
-                }
-                doneCount++;
-                if (doneCount % 10 === 0 || doneCount === queue.length) {
-                    const pct = Math.round((doneCount / queue.length) * 100);
-                    report('graph', pct);
-                    console.log(`  Graph: processed ${doneCount}/${queue.length} chunks (${totalEntities} entities, ${totalRels} relations)`);
-                }
-            }
-        }
-        await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-        console.log(`Graph built: ${totalEntities} entity mentions, ${totalRels} relations (skipped ${graphChunks.length - queue.length} short chunks).`);
-        report('graph', 100);
+        const { buildKnowledgeGraph } = await import('./graphBuilder.js');
+        await buildKnowledgeGraph({
+            indexName,
+            docName: pdfFileName,
+            chunks: graphChunks,
+            totalPages,
+            onProgress: report,
+        });
+    } else {
+        report('vectors', 100);
         report('done', 100);
     }
-
-    report('vectors', 100);
-    if (!buildGraph || !graph.getDriver()) report('done', 100);
 
     const verification = await verifyIndexedCount(pineconeIndex, upserted.succeeded);
     if (!verification.ok) {

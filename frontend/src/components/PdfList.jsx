@@ -1,4 +1,4 @@
-export default function PdfList({ items, onRemove }) {
+export default function PdfList({ items, onRemove, onBuildGraph }) {
   if (!items.length) {
     return <div className="empty">No PDFs uploaded yet. Drop one above to get started.</div>;
   }
@@ -12,7 +12,7 @@ export default function PdfList({ items, onRemove }) {
         const vectorPct = phase === 'vectors' ? progress : (vectorDone ? 100 : 0);
         const graphPct = phase === 'graph' ? progress : (phase === 'done' ? 100 : 0);
         const vectorIndeterminate = isIndexing && vectorPct === 0 && phase !== 'graph' && phase !== 'done';
-        const graphIndeterminate = isIndexing && phase === 'graph' && graphPct === 0;
+        const graphIndeterminate = isIndexing && (phase === 'vectors' || (phase === 'graph' && graphPct === 0));
         return (
           <div className="pdf-item" key={item.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -22,6 +22,11 @@ export default function PdfList({ items, onRemove }) {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span className={`badge ${item.status === 'indexing' ? 'uploading' : item.status}`}>{item.status}</span>
+                {item.status === 'indexed' && !item.graphEnabled && (
+                  <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }} onClick={() => onBuildGraph && onBuildGraph(item.id)}>
+                    Build Graph
+                  </button>
+                )}
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 10px' }} onClick={() => onRemove(item.id)}>Remove</button>
               </div>
             </div>
@@ -36,7 +41,7 @@ export default function PdfList({ items, onRemove }) {
                     animation: vectorIndeterminate ? 'indeterminate 1.4s ease-in-out infinite' : 'none',
                   }} />
                 </div>
-                {(phase === 'graph' || phase === 'done') && (
+                {item.graphEnabled && (
                   <>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, marginBottom: 3, display: 'flex', justifyContent: 'space-between' }}>
                       <span>Graph DB</span><span>{graphPct}%</span>
