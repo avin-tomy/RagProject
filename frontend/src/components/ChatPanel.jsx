@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useAuth } from '../context/AuthContext';
+import { jsPDF } from 'jspdf';
 
 export default function ChatPanel({ pdfs = [] }) {
   const { authFetch } = useAuth();
@@ -16,20 +16,69 @@ export default function ChatPanel({ pdfs = [] }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
 
-  const exportChat = () => {
-    const md = messages.map(m => {
-      const role = m.role === 'user' ? '**You**' : '**Assistant**';
-      return `${role}:\n\n${m.content}`;
-    }).join('\n\n---\n\n');
-    const blob = new Blob([`# Chat Export\n\n${md}\n`], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const exportChat = (format = 'pdf') => {
+    if (format === 'md') {
+      const md = messages.map(m => {
+        const role = m.role === 'user' ? '**You**' : '**Assistant**';
+        return `${role}:\n\n${m.content}`;
+      }).join('\n\n---\n\n');
+      const blob = new Blob([`# Chat Export\n\n${md}\n`], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // PDF export
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const margin = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
+
+    doc.setFontSize(16);
+    doc.text('Chat Export', margin, y);
+    y += 24;
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(new Date().toLocaleString(), margin, y);
+    y += 20;
+    doc.setTextColor(0);
+
+    for (const m of messages) {
+      const role = m.role === 'user' ? 'You' : 'Assistant';
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.text(role, margin, y);
+      y += 16;
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(10);
+
+      // strip markdown symbols for readability
+      const clean = m.content
+        .replace(/\*\*/g, '')
+        .replace(/#{1,6}\s*/g, '')
+        .replace(/`{1,3}/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+      const lines = doc.splitTextToSize(clean, maxWidth);
+      for (const line of lines) {
+        if (y > doc.internal.pageSize.getHeight() - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += 14;
+      }
+      y += 10;
+    }
+
+    doc.save(`chat-export-${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const toggleDoc = (id) => {
@@ -106,8 +155,11 @@ export default function ChatPanel({ pdfs = [] }) {
             <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Searching {selectedDocs.length} document{selectedDocs.length === 1 ? '' : 's'}</span>
           )}
         </div>
-        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={exportChat} disabled={messages.length <= 1}>
-          Export
+        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => exportChat('md')} disabled={messages.length <= 1}>
+          Export MD
+        </button>
+        <button className="btn" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => exportChat('pdf')} disabled={messages.length <= 1}>
+          Export PDF
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">

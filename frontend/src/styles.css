@@ -90,6 +90,7 @@ a:hover { text-decoration: underline; }
   color: var(--text);
 }
 .btn-ghost:hover { background: #f3f4f6; }
+.btn-ghost:active { transform: translateY(1px); background: #e5e7eb; }
 
 .alert {
   padding: 10px 12px;
