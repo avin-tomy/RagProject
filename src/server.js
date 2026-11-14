@@ -14,7 +14,7 @@ import { User } from './models/User.js';
 import { Pdf } from './models/Pdf.js';
 import { authMiddleware } from './middleware/auth.js';
 import { generateIndexName } from './utils/indexName.js';
-import { matchDocument } from './utils/documentMatcher.js';
+import { matchDocument, parsePageNumber } from './utils/documentMatcher.js';
 import {
     createEmbeddingModel,
     createChatModel,

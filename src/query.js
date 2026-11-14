@@ -14,8 +14,9 @@ import {
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
-import * as graph from './graph.js';
+import { parsePageNumber } from './utils/documentMatcher.js';
 import { createSearchTool, createGraphTool, createListDocumentsTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
+import * as graph from './graph.js';
 
 // Short conversational messages (greetings, thanks, compliments) that should
 // never trigger a document search or a rewrite.
@@ -211,9 +212,8 @@ export function createChatSession({
         }
 
         // Detect page-specific questions and pre-fetch that page's content.
-        const pageMatch = question.match(/page\s+(\d+)/i);
-        if (pageMatch) {
-            const pageNum = parseInt(pageMatch[1], 10);
+        const pageNum = parsePageNumber(question);
+        if (pageNum) {
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
                 const raw = await pageTool.invoke({ page: pageNum });
@@ -426,9 +426,8 @@ Rules:
         const recentHistory = chatHistory.slice(-6);
 
         // Detect page-specific questions and pre-fetch that page's content.
-        const pageMatch = question.match(/page\s+(\d+)/i);
-        if (pageMatch) {
-            const pageNum = parseInt(pageMatch[1], 10);
+        const pageNum = parsePageNumber(question);
+        if (pageNum) {
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter });
                 const raw = await pageTool.invoke({ page: pageNum });
