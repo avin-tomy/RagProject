@@ -71,7 +71,7 @@ const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions base
 Instructions:
 - Answer the question using ONLY the information in the context below and the conversation above.
 - If the answer is not in the context, say "I don't have enough information to answer that question."
-- Cite the page number(s) supporting each claim using the [Page N] labels from the context.
+- Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]...").
 - Be concise and clear.
 - Use code examples from the context if relevant.`;
 
@@ -169,9 +169,9 @@ You have a tool called search_documents that retrieves relevant passages from th
 - Break complex questions into smaller, specific search queries.
 - Once you have retrieved relevant passages, stop searching and provide the final answer. Do not search more than necessary.
 - Stop searching once you have enough context to answer. Do not keep searching after that.
-- Answer only from the retrieved context. Cite page numbers using the [Page N] labels.
+- Answer only from the retrieved context. Cite page numbers using the [Page N] labels from the context (e.g., "According to [Page 5]...").
 - If no relevant context is found after searching, say "I don't have enough information to answer that question."
-- For greetings, small talk, or meta questions about the conversation, answer directly without searching.`;
+- For greetings or meta questions about the conversation (not about the document), answer directly without searching.`;
 
         const messages = [
             new SystemMessage(
