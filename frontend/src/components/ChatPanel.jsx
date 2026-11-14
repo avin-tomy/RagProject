@@ -106,7 +106,7 @@ export default function ChatPanel({ pdfs = [] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {indexedPdfs.length > 0 && (
             <>
@@ -154,7 +154,7 @@ export default function ChatPanel({ pdfs = [] }) {
           Export PDF
         </button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260 }} className="md-body">
+      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, minHeight: 260, marginTop: 8 }} className="md-body">
         {messages.map((m, i) => (
           <div key={i} style={{
             marginBottom: 12,
