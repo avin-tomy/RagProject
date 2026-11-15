@@ -33,8 +33,8 @@ const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions base
 
 Instructions:
 - Answer using ONLY the information in the context below and the conversation above.
-- If the answer is not in the context, say "I don't have enough information to answer that question."
-- If only part of the answer is available, state what is known and what is missing.
+- If the answer is not in the context, say "I don't have enough information to answer that question." Do not conclude the answer is unavailable unless the context clearly lacks any relevant passage.
+- If only part of the answer is available, state what is known and what is missing rather than saying you have no information at all.
 - Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]..."). Cite a page for EVERY factual claim, including names, dates, and figures.
 - When multiple documents are present, also cite the source filename for each claim.
 - Be concise and clear.
@@ -70,6 +70,7 @@ Rules:
 - Preserve document names, named entities, and numeric values exactly.
 - If the follow-up is already standalone, return it unchanged.
 - If the follow-up introduces a new, unrelated topic, return it unchanged.
+- If the follow-up says the answer is in the document or asks for more thoroughness, broaden the search query to cover all relevant aspects.
 - Return ONLY the rewritten question, with no explanation.`],
     new MessagesPlaceholder('chat_history'),
     ['human', 'Follow-up question: {question}\nStandalone question:'],
@@ -272,7 +273,7 @@ You have tools. Use them to gather evidence before answering. Follow this workfl
    - Relationships, traversal, aggregation, cross-document links: query_graph (read-only Cypher; always filter by $indexName).
    - Compare documents / shared concepts: compare_documents.
 
-3. Iterate: after tool results, decide if you have enough. If not, refine (e.g., get_page_content for a promising page, or a new search with different phrasing). Stop once sufficient.
+3. Iterate: after tool results, decide if you have enough. If not, refine (e.g., get_page_content for a promising page, or a new search with different phrasing). Do not conclude "not enough information" until you have issued at least 2-3 different search queries with varied phrasing, and if a promising page appears, fetch its full content. Stop once sufficient.
 
 4. Answer:
    - Answer ONLY from retrieved context. If no relevant context was found, say "I don't have enough information to answer that question."
@@ -286,6 +287,9 @@ Rules:
 - Prefer parallel calls for independent sub-queries.
 - Do not call tools for greetings or meta questions.
 - ALWAYS use the calculate tool for ANY arithmetic, even simple addition or division. Never compute numbers in your head.
+- Minimum effort before giving up: do not conclude "not enough information" until you have issued at least 2-3 different search queries with varied phrasing, and, if a promising page appears, fetched its full content with get_page_content.
+- Self-check before giving up: verify you searched for each sub-part of the question. If any sub-part is unaddressed, search again before concluding.
+- If a search returns chunks but does not fully answer, retry with broader or differently worded queries, or fetch the full page of the most relevant result.
 - If a tool returns an error or empty result, try an alternative approach or state the limitation.
 - Once you have enough context, stop calling tools and provide the final answer.`;
 
@@ -372,7 +376,7 @@ Rules:
                 const finalizer = model.bindTools([]);
                 const finalMessages = [
                     ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. If the context is insufficient, say so.'),
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. If the context is insufficient, state what you found and what is still missing rather than simply saying you have no information.'),
                 ];
                 const last = await withRetry(
                     () => finalizer.invoke(finalMessages),

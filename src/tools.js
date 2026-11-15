@@ -74,6 +74,8 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
                 'multiple times with different, focused sub-queries to gather enough ' +
                 'context before answering. Prefer specific standalone search phrases. ' +
                 'Do not repeat the same query; vary phrasing for different aspects. ' +
+                'Do not give up after one search: if results are partial, try broader or differently worded queries, ' +
+                'or fetch the full page with get_page_content. ' +
                 `Available documents: ${docNames}. Pass a "document" param to search a specific one.`,
             schema: z.object({
                 query: z.string().describe('A focused, standalone search query'),
@@ -214,7 +216,8 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
             description:
                 'Retrieve the full text content of a specific page number from the indexed document. ' +
                 'Use this when the user asks to see, read, or show a specific page, or when you need ' +
-                'the complete text of a page (not just search results). ' +
+                'the complete text of a page (not just search results). Also use it when search snippets ' +
+                'are fragmented and you need the full page to answer fully. ' +
                 (documents.length ? `Available documents: ${documents.map((d) => d.name).join(', ')}.` : ''),
             schema: z.object({
                 page: z.number().int().min(1).describe('The page number to retrieve'),
