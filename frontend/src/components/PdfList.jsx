@@ -19,6 +19,9 @@ export default function PdfList({ items, onRemove, onBuildGraph }) {
               <div>
                 <div className="name">{item.name}</div>
                 <div className="meta">{item.size} · {item.uploadedAt}</div>
+                  {item.status === 'failed' && item.error && (
+                    <div className="meta" style={{ color: 'var(--danger)' }}>{item.error}</div>
+                  )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span className={`badge ${item.status === 'indexing' ? 'uploading' : item.status}`}>{item.status}</span>

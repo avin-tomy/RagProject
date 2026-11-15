@@ -62,6 +62,8 @@ export function isRetryableError(err) {
         if (status >= 400) return false;
     }
 
+    if (err?.retryable === true) return true;
+
     const message = [err?.message, err?.code, err?.cause?.message, err?.cause?.code]
         .filter(Boolean)
         .join(' ');

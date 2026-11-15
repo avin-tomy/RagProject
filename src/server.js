@@ -14,7 +14,7 @@ import { User } from './models/User.js';
 import { Pdf } from './models/Pdf.js';
 import { authMiddleware } from './middleware/auth.js';
 import { generateIndexName } from './utils/indexName.js';
-import { matchDocument, parsePageNumber } from './utils/documentMatcher.js';
+import { matchDocument } from './utils/documentMatcher.js';
 import {
     createEmbeddingModel,
     createChatModel,
@@ -94,11 +94,15 @@ try {
     }
 
     if (process.env.NEO4J_URI) {
-        graph.initGraph(process.env.NEO4J_URI, process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD);
-        const s = graph.getDriver().session();
-        await graph.ensureGraphSchema(s);
-        await s.close();
-        console.log('Connected to Neo4j Aura');
+        try {
+            graph.initGraph(process.env.NEO4J_URI, process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD);
+            const s = graph.getDriver().session();
+            await graph.ensureGraphSchema(s);
+            await s.close();
+            console.log('Connected to Neo4j Aura');
+        } catch (err) {
+            console.warn('Neo4j setup failed (graph features disabled):', err.message);
+        }
     } else {
         console.log('Neo4j not configured (graph features disabled).');
     }
@@ -174,7 +178,7 @@ app.post('/api/pdfs', authMiddleware, upload.single('file'), async (req, res) =>
             docName,
             size: req.file.size,
             status: 'indexing',
-            graphEnabled: buildGraph,
+            graphEnabled: buildGraph && !!graph.getDriver(),
             indexName: user.pineconeIndexName,
         });
 
@@ -192,6 +196,9 @@ app.post('/api/pdfs', authMiddleware, upload.single('file'), async (req, res) =>
                     },
                     onChunks: async (chunks) => {
                         await Pdf.findByIdAndUpdate(pdf._id, { chunks });
+                    },
+                    onTotalPages: async (totalPages) => {
+                        await Pdf.findByIdAndUpdate(pdf._id, { pageCount: totalPages });
                     },
                 });
                 await Pdf.findByIdAndUpdate(pdf._id, { status: 'indexed', phase: 'done', progress: 100 });
@@ -377,7 +384,10 @@ app.post('/api/query', authMiddleware, async (req, res) => {
             : null;
 
         // Document list for the agent's context (from MongoDB, always available).
-        const userPdfs = await Pdf.find({ userId: user._id, status: 'indexed' }).select('originalName _id');
+        const userPdfs = await Pdf.find({
+            userId: user._id,
+            $or: [{ status: 'indexed' }, { status: 'indexing', phase: 'graph' }],
+        }).select('originalName _id');
         if (userPdfs.length === 0) {
             return res.json({
                 answer: 'No documents are indexed yet. Please upload a PDF first, then ask your question.',
@@ -430,7 +440,9 @@ app.post('/api/query', authMiddleware, async (req, res) => {
         res.json({ answer, history: updatedHistory });
     } catch (err) {
         console.error('Query error:', err);
-        res.status(500).json({ error: err.message || 'Query failed' });
+        const msg = err.message || 'Query failed';
+        const clientError = /does not exist|incompatible|dimension|SCORE_THRESHOLD|not found/i.test(msg);
+        res.status(clientError ? 400 : 500).json({ error: msg });
     }
 });
 
@@ -452,7 +464,7 @@ const server = app.listen(PORT, () => {
 
 async function shutdown(signal) {
     console.log(`Received ${signal}, shutting down gracefully...`);
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
     try { await mongoose.disconnect(); } catch { /* ignore */ }
     try { await graph.closeGraph(); } catch { /* ignore */ }
     process.exit(0);
@@ -460,4 +472,4 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
-process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
+process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); process.exit(1); });

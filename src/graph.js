@@ -179,7 +179,7 @@ export async function queryGraph(indexName, cypher, params = {}) {
     if (!driver) return { records: [], summary: 'Graph not configured' };
     const session = driver.session();
     try {
-        const result = await session.run(cypher, { indexName, ...params });
+        const result = await session.run(cypher, { ...params, indexName });
         const records = result.records.map((r) => {
             const obj = {};
             r.keys.forEach((k) => {
@@ -245,7 +245,10 @@ export async function getGraphStats(indexName) {
             { indexName }
         );
         const stats = {};
-        r.records.forEach((rec) => { stats[rec.get('label')] = rec.get('c').toNumber(); });
+        r.records.forEach((rec) => {
+            const c = rec.get('c');
+            stats[rec.get('label')] = neo4j.isInt(c) ? c.toNumber() : Number(c);
+        });
         return stats;
     } finally {
         await session.close();
@@ -270,7 +273,7 @@ export async function batchUpsertEntities(indexName, entities) {
         await session.run(
             `UNWIND $rows AS row
              MERGE (e:Entity {indexName: $indexName, name: row.name, type: row.type})
-             SET e.description = row.description`,
+             SET e.description = COALESCE(NULLIF(row.description, ''), e.description)`,
             { indexName, rows: unique }
         );
     } finally {
@@ -331,7 +334,7 @@ export async function batchUpsertRelations(indexName, relations, documentId) {
         await session.run(
             `UNWIND $rows AS row
              MERGE (e:Entity {indexName: $indexName, name: row.name, type: row.type})
-             SET e.description = row.description`,
+             SET e.description = COALESCE(NULLIF(row.description, ''), e.description)`,
             { indexName, rows: endpoints }
         );
         await session.run(

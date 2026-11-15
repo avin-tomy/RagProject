@@ -171,9 +171,11 @@ export function createChatSession({
     agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] }));
     agentTools.push(createExtractTablesTool(vectorStore, { documentFilter, documents: documents || [] }));
     agentTools.push(createCalculatorTool());
+    if (agentic) {
+        agentTools.push(createDocumentListTool(documents || []));
+    }
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
-        agentTools.push(createDocumentListTool(documents || []));
         agentTools.push(createCompareDocumentsTool(indexName));
     }
     const toolByName = Object.fromEntries(agentTools.map((t) => [t.name, t]));
@@ -262,15 +264,16 @@ You have these tools (use them as needed, in any order, multiple times):
    - Safe math evaluator. Supports +, -, *, /, %, parentheses, Math functions.
    - Use for any numeric computation: percentages, interest, EMI, fees, limits.
 
-5. query_graph(cypher, params)
+5. list_documents()
+   - List all indexed documents. Use first to discover document names.
+
+${graph.getDriver() ? `6. query_graph(cypher, params)
    - Read-only Cypher queries on the knowledge graph (Neo4j).
    - Use for: relationships, traversal, aggregation, cross-document links.
 
-6. list_documents()
-   - List all indexed documents. Use first to discover document names.
-
 7. compare_documents()
    - Find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?".
+` : ''}
 
 Workflow guidelines:
 - For factual questions: call search_documents first, then answer from results.
@@ -301,6 +304,7 @@ Workflow guidelines:
 
         let finalAnswer = null;
         let hasContext = false;
+        let hasCalculation = false;
         let searched = false;
         let steps = 0;
 
@@ -333,6 +337,10 @@ Workflow guidelines:
                 let parsed = {};
                 try { parsed = JSON.parse(raw); } catch { parsed = {}; }
                 if (tc.name === 'search_documents' && (parsed.count ?? 0) > 0) hasContext = true;
+                if (tc.name === 'get_page_content' && (parsed.chunks ?? 0) > 0) hasContext = true;
+                if (tc.name === 'extract_tables' && parsed.hasTables) hasContext = true;
+                if (tc.name === 'query_graph' && Array.isArray(parsed.records) && parsed.records.length > 0) hasContext = true;
+                if (tc.name === 'calculate' && parsed.result != null) hasCalculation = true;
                 if (tc.name === 'search_documents') {
                     console.log(`  search "${args.query}" → ${parsed.count ?? 0} chunks`);
                 } else if (tc.name === 'get_page_content') {
@@ -375,7 +383,7 @@ Workflow guidelines:
             if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
         }
 
-        if (searched && !hasContext && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
+        if (searched && !hasContext && !hasCalculation && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
             finalAnswer = FALLBACK_ANSWER;
         }
         if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
@@ -518,26 +526,26 @@ Workflow guidelines:
         }
 
         const results = searchResult.value ?? [];
-        const documents = results
+        const retrievedDocs = results
             .filter(([, score]) => score >= scoreThreshold)
             .map(([doc]) => doc);
 
-        const pages = [...new Set(documents.map(pageRange).filter(Boolean))];
+        const pages = [...new Set(retrievedDocs.map(pageRange).filter(Boolean))];
         const scoreRange = formatScoreRange(results.map(([, score]) => score));
         console.log(
-            `Retrieved ${results.length} chunks; kept ${documents.length} above the ${scoreThreshold} relevance threshold` +
+            `Retrieved ${results.length} chunks; kept ${retrievedDocs.length} above the ${scoreThreshold} relevance threshold` +
             `${scoreRange ? ` (scores ${scoreRange})` : ''}` +
             `${pages.length ? ` (page(s): ${pages.join(', ')})` : ''}`
         );
 
-        if (documents.length === 0) {
+        if (retrievedDocs.length === 0) {
             console.log(`${FALLBACK_ANSWER}\n`);
             chatHistory.push(new HumanMessage(question), new AIMessage(FALLBACK_ANSWER));
             pruneHistory();
             return;
         }
 
-        const context = documents
+        const context = retrievedDocs
             .map((doc) => `[Page ${pageRange(doc) ?? 'unknown'}]\n${doc.pageContent}`)
             .join('\n\n---\n\n');
 

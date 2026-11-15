@@ -36,8 +36,19 @@ export function matchDocument(question, documents) {
         }
     }
 
-    // 4. If candidate found, match against document names
+    // 4. If candidate found, only treat it as a document reference when it
+    //    actually overlaps with one of the known document names. Generic phrases
+    //    such as "the company", "the loan", or "this document" must not hijack
+    //    the query.
     if (candidate) {
+        const candidateWords = candidate.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+        const docWords = documents.flatMap((d) =>
+            String(d.name || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3)
+        );
+        if (!candidateWords.some((w) => docWords.includes(w))) {
+            return { matched: null, suggestion: null };
+        }
+
         const cn = norm(candidate);
         // Exact or substring match
         for (const doc of documents) {
@@ -67,7 +78,7 @@ export function matchDocument(question, documents) {
             while (i < cn.length && i < dn.length && cn[i] === dn[i]) i++;
             if (i > bestScore) { bestScore = i; best = doc; }
         }
-        if (best && bestScore >= 3) {
+        if (best && bestScore >= 5) {
             return { matched: null, suggestion: `Did you mean "${best.name}"?` };
         }
         return { matched: null, suggestion: `I don't have a document matching "${candidate}". Available: ${documents.map((d) => d.name).join(', ')}` };

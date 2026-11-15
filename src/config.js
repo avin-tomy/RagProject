@@ -9,17 +9,17 @@ export const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'gemini').toLowerCase()
 const isOpenRouter = LLM_PROVIDER === 'openrouter';
 
 // Model names — overridable via env for easy experimentation.
-export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || (isOpenRouter
-    ? 'perplexity/pplx-embed-v1-0.6b'
-    : 'gemini-embedding-001');
+export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ||
+    process.env.OPENROUTER_EMBEDDING_MODEL ||
+    (isOpenRouter ? 'perplexity/pplx-embed-v1-0.6b' : 'gemini-embedding-001');
 
 export const EMBEDDING_DIMENSION = Number(process.env.EMBEDDING_DIMENSION) || (isOpenRouter ? 1024 : 3072);
 
 export const INDEX_METRIC = 'cosine';
 
-export const CHAT_MODEL = process.env.CHAT_MODEL || (isOpenRouter
-    ? 'inclusionai/ling-3.0-flash'
-    : 'gemini-3.8-flash');
+export const CHAT_MODEL = process.env.CHAT_MODEL ||
+    process.env.OPENROUTER_CHAT_MODEL ||
+    (isOpenRouter ? 'inclusionai/ling-3.0-flash' : 'gemini-3.8-flash');
 
 export const DEFAULT_SCORE_THRESHOLD = isOpenRouter ? 0.1 : 0.5;
 export const DEFAULT_TOP_K = Number(process.env.TOP_K) || 4;
@@ -75,12 +75,17 @@ export function isNotFoundError(err) {
         /\b404\b/.test(err instanceof Error ? err.message : String(err));
 }
 
+const EXPLICIT_DIMENSION = process.env.EMBEDDING_DIMENSION
+    ? Number(process.env.EMBEDDING_DIMENSION)
+    : null;
+
 export function createEmbeddingModel() {
     if (isOpenRouter) {
         return new OpenAIEmbeddings({
             apiKey: requireEnv('OPENROUTER_API_KEY'),
             model: EMBEDDING_MODEL,
             encodingFormat: 'float',
+            ...(EXPLICIT_DIMENSION ? { dimensions: EXPLICIT_DIMENSION } : {}),
             configuration: {
                 baseURL: 'https://openrouter.ai/api/v1',
                 defaultHeaders: {
@@ -94,6 +99,7 @@ export function createEmbeddingModel() {
     return new GoogleGenerativeAIEmbeddings({
         apiKey: requireEnv('GEMINI_API_KEY'),
         model: EMBEDDING_MODEL,
+        ...(EXPLICIT_DIMENSION ? { outputDimensionality: EXPLICIT_DIMENSION } : {}),
     });
 }
 

@@ -14,6 +14,7 @@ const pdfSchema = new mongoose.Schema({
     chunks: { type: [{ text: String, page: Number, pageEnd: Number }], default: [] },
     indexName: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now },
+    pageCount: { type: Number, default: 0 },
 }, { timestamps: true });
 
 export const Pdf = mongoose.model('Pdf', pdfSchema);

@@ -42,14 +42,6 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
             console.log(`Searching the index for: "${q}" (top ${k})...` + (filter ? ` [filter: ${JSON.stringify(filter)}]` : ''));
 
             let results = await vectorStore.similaritySearchWithScore(q, k, filter || undefined);
-            // If a document filter returned nothing, retry without it (old index).
-            if (results.length === 0 && filter && filter.documentId) {
-                console.log('  Filtered search returned 0; retrying without document filter...');
-                const retryResults = await vectorStore.similaritySearchWithScore(q, k, undefined);
-                if (retryResults.length > 0) {
-                    results = retryResults;
-                }
-            }
             const docs = results
                 .filter(([, score]) => score >= scoreThreshold)
                 .map(([doc]) => doc);
@@ -171,7 +163,7 @@ export function createCompareDocumentsTool(indexName) {
                     lines.push(`  - ${e.name} (${e.type}) — appears in ${e.docCount} documents`);
                 }
             }
-            return JSON.stringify({ summary: lines.join('\\n'), documents: docs, sharedEntities: shared });
+            return JSON.stringify({ summary: lines.join('\n'), documents: docs, sharedEntities: shared });
         },
         {
             name: 'compare_documents',
@@ -192,7 +184,8 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
             const k = topK ?? 20;
             console.log(`Fetching content for page ${page}...`);
 
-            let filter = { page, ...(documentFilter || {}) };
+            const pageFilter = { $or: [{ page }, { pageEnd: page }] };
+            let filter = documentFilter ? { $and: [documentFilter, pageFilter] } : pageFilter;
             if (document) {
                 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const dn = norm(document);
@@ -201,16 +194,12 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
                     return n === dn || n.includes(dn) || dn.includes(n);
                 });
                 if (matched) {
-                    filter = { ...filter, documentId: matched.documentId };
+                    filter = { $and: [filter, { documentId: matched.documentId }] };
                     console.log(`Fetching page ${page} from document: "${matched.name}"`);
                 }
             }
 
             let results = await vectorStore.similaritySearchWithScore('content', k, filter);
-            if (results.length === 0 && filter.documentId) {
-                const retryFilter = { page };
-                results = await vectorStore.similaritySearchWithScore('content', k, retryFilter);
-            }
             const pageDocs = results.map(([doc]) => doc);
             if (pageDocs.length === 0) {
                 return JSON.stringify({ page, content: '', message: 'No content found for this page.' });
@@ -240,7 +229,8 @@ export function createExtractTablesTool(vectorStore, { documentFilter = null, do
         async ({ page, document }) => {
             const docs = documents || [];
             console.log(`Extracting tables from page ${page}...`);
-            let filter = { page, ...(documentFilter || {}) };
+            const pageFilter = { $or: [{ page }, { pageEnd: page }] };
+            let filter = documentFilter ? { $and: [documentFilter, pageFilter] } : pageFilter;
             if (document) {
                 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const dn = norm(document);
@@ -249,7 +239,7 @@ export function createExtractTablesTool(vectorStore, { documentFilter = null, do
                     return n === dn || n.includes(dn) || dn.includes(n);
                 });
                 if (matched) {
-                    filter = { ...filter, documentId: matched.documentId };
+                    filter = { $and: [filter, { documentId: matched.documentId }] };
                 }
             }
             const results = await vectorStore.similaritySearchWithScore('table', 20, filter);
@@ -288,7 +278,7 @@ export function createCalculatorTool() {
     return tool(
         async ({ expression }) => {
             const cleaned = expression.replace(/Math\.\w+/g, '');
-            if (!/^[\d\s+\-*/().,%^eE]+$/.test(cleaned)) {
+            if (cleaned && !/^[\d\s+\-*/().,%^eE]+$/.test(cleaned)) {
                 return JSON.stringify({ error: 'Invalid expression. Only math operations are allowed.' });
             }
             try {

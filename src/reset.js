@@ -80,3 +80,19 @@ export async function resetIndex({ yes = false, pinecone, indexName } = {}) {
 }
 
 // Module used as a library by the web server.
+
+import { pathToFileURL } from 'node:url';
+
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+    const { yes, help } = parseResetArgs(process.argv.slice(2));
+    if (help) {
+        console.log(RESET_USAGE);
+        process.exit(0);
+    }
+    resetIndex({ yes }).then(() => {
+        process.exit(0);
+    }).catch((err) => {
+        console.error(err.message || err);
+        process.exit(1);
+    });
+}

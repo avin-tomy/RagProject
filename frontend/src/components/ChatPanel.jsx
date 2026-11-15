@@ -122,7 +122,7 @@ export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
           disabled={busy}
           style={{
             flex: 1, padding: '12px 14px', borderRadius: 10,
-            border: '1px solid var(--card-border)', background: 'rgba(0,0,0,0.25)',
+            border: '1px solid var(--card-border)', background: '#fff',
             color: 'var(--text)', fontSize: 15, outline: 'none',
           }}
         />

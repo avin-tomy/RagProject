@@ -388,7 +388,7 @@ export async function clearIndexVectors(pineconeIndex, existingCount, options = 
     return { ok: false, message: result.message };
 }
 
-export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress, onChunks, documentId } = {}) {
+export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOverride, buildGraph, onProgress, onChunks, onTotalPages, documentId } = {}) {
     const resolvedPdfPath = resolvePdfPath(pdfPath);
     const pdfFileName = path.basename(resolvedPdfPath);
 
@@ -467,19 +467,8 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
     );
 
     if (embedded.failures.length > 0) {
-        console.error('\nEmbedding failed:');
-        for (const failure of embedded.failures) {
-            console.error(
-                `  - ${failure.label}: ${failure.message}` +
-                (failure.attempts > 1 ? ` (after ${failure.attempts} attempts)` : '')
-            );
-        }
-        console.error(
-            `\nNothing was written; the existing index was left unchanged. ` +
-            `Fix the errors and re-run \`npm run index\`.`
-        );
-        process.exitCode = 1;
-        return;
+        const detail = embedded.failures.map((f) => `${f.label}: ${f.message}`).join('; ');
+        throw new Error(`Embedding failed: ${detail}`);
     }
 
     console.log(`Embedded ${embedded.embedded}/${embedded.total} chunks successfully`);
@@ -507,7 +496,7 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
             await pineconeIndex.deleteMany({ documentId });
             console.log('Stale vectors removed');
         } catch (err) {
-            console.warn('Could not remove stale vectors:', err.message);
+            throw new Error(`Could not remove stale vectors: ${err.message}`);
         }
     } else if (existingCount === 0) {
         console.log('Index is already empty; nothing to clear');
@@ -533,42 +522,44 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
     );
 
     if (upserted.failures.length > 0) {
-        console.error('\nFailed batches:');
-        for (const failure of upserted.failures) {
-            console.error(
-                `  - ${failure.label}: ${failure.message}` +
-                (failure.attempts > 1 ? ` (after ${failure.attempts} attempts)` : '')
-            );
-        }
-        console.error('Some vectors were not indexed. Re-run `npm run index` to retry.');
-        process.exitCode = 1;
-        return;
+        const detail = upserted.failures.map((f) => `${f.label}: ${f.message}`).join('; ');
+        throw new Error(`Upsert failed: ${detail}`);
     }
 
     if (buildGraph === undefined) buildGraph = process.env.GRAPH_RAG === 'true';
+
+    const graphChunks = chunkedDocs.map((doc) => ({
+        text: doc.pageContent,
+        page: doc.metadata?.page,
+        pageEnd: doc.metadata?.pageEnd,
+    }));
+
+    // Persist chunks regardless of graph so "Build Graph" can run later.
+    if (typeof onChunks === 'function') {
+        await onChunks(graphChunks);
+    }
+    if (typeof onTotalPages === 'function') {
+        await onTotalPages(totalPages);
+    }
 
     if (buildGraph && graph.getDriver()) {
         console.log('\nBuilding knowledge graph...');
         report('vectors', 100);
         report('graph', 0);
-        const graphChunks = chunkedDocs.map((doc, i) => ({
-            text: doc.pageContent,
-            page: doc.metadata?.page,
-            pageEnd: doc.metadata?.pageEnd,
-        }));
-        // Save chunks to Pdf doc is handled by server via onChunks callback
-        if (typeof onChunks === 'function') {
-            await onChunks(graphChunks);
+        try {
+            const { buildKnowledgeGraph } = await import('./graphBuilder.js');
+            await buildKnowledgeGraph({
+                indexName,
+                docName: pdfFileName,
+                documentId: documentId || '',
+                chunks: graphChunks,
+                totalPages,
+                onProgress: report,
+            });
+        } catch (err) {
+            console.warn('Knowledge graph build failed (vectors are still indexed):', err.message);
+            report('done', 100);
         }
-        const { buildKnowledgeGraph } = await import('./graphBuilder.js');
-        await buildKnowledgeGraph({
-            indexName,
-            docName: pdfFileName,
-            documentId: documentId || '',
-            chunks: graphChunks,
-            totalPages,
-            onProgress: report,
-        });
     } else {
         report('vectors', 100);
         report('done', 100);
@@ -579,16 +570,32 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
     } else {
         const verification = await verifyIndexedCount(pineconeIndex, upserted.succeeded);
         if (!verification.ok) {
-            console.error(
-                `\nIndex verification failed after ${verification.attempts} attempt(s): ` +
-                `${verification.message}`
-            );
-            console.error('The index may be incomplete. Re-run `npm run index` to rebuild it.');
-            process.exitCode = 1;
-            return;
+            throw new Error(`Index verification failed: ${verification.message}`);
         }
         console.log(`Indexing complete: ${verification.count} chunks stored in Pinecone`);
     }
 }
 
 // Module used as a library by the web server.
+
+import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
+
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+    const { pdfPath, dryRun, help } = parseIndexArgs(process.argv.slice(2));
+    if (help) {
+        console.log(INDEX_USAGE);
+        process.exit(0);
+    }
+    const resolved = pdfPath ? resolvePdfPath(pdfPath) : null;
+    if (!resolved) {
+        console.error(`A PDF path is required\n\n${INDEX_USAGE}`);
+        process.exit(1);
+    }
+    indexing({ pdfPath: resolved, dryRun }).then(() => {
+        process.exit(process.exitCode || 0);
+    }).catch((err) => {
+        console.error(err.message || err);
+        process.exit(1);
+    });
+}
