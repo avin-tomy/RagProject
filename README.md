@@ -1,167 +1,115 @@
 # Node PDF RAG
 
-A small RAG pipeline that indexes a PDF into Pinecone and answers questions about it with Gemini.
+A full-stack RAG (Retrieval-Augmented Generation) web application that lets users upload PDFs (bank circulars, SOPs, manuals), index them into Pinecone, and ask questions with cited answers. Includes agentic multi-step retrieval, knowledge graph (Neo4j), multi-document filtering, and a React frontend.
 
 ```
-Node.pdf -> pdfLoader -> content-aware chunks -> Gemini embeddings -> Pinecone
-                                                                         |
-question -> Gemini embedding -> Pinecone top-K -> score filter -> Gemini -> answer
+PDF -> pdfLoader -> content-aware chunks -> Gemini/OpenRouter embeddings -> Pinecone
+                                                                          |
+question -> embedding -> Pinecone top-K (filtered by doc) -> score filter -> LLM -> cited answer
+                                                                          |
+                                                                    Neo4j graph (entities/relations)
 ```
 
 ## Requirements
 
 - Node.js 20 or newer
-- A [Gemini API key](https://aistudio.google.com/apikey)
+- A [Gemini API key](https://aistudio.google.com/apikey) **or** an [OpenRouter API key](https://openrouter.ai/keys)
 - A [Pinecone API key](https://app.pinecone.io)
+- A [MongoDB Atlas](https://www.mongodb.com/atlas) connection string
+- (Optional) A [Neo4j Aura](https://neo4j.com/cloud/aura/) instance for graph RAG
 
 ## Setup
 
 ```bash
 npm install
+cd frontend && npm install && cd ..
 cp .env.example .env
-# edit .env and fill in GEMINI_API_KEY, PINECONE_API_KEY, PINECONE_INDEX_NAME
+# edit .env and fill in your keys
 ```
 
-`PINECONE_INDEX_NAME` must be 1–45 characters using lowercase letters, digits, or
-hyphens, and must start and end with a letter or digit (for example `node-pdf-rag`).
-
-The Pinecone index is created automatically by `indexing.js` if it does not exist
-(3072 dimensions, cosine metric, serverless). Creation uses `aws` / `us-east-1`
-by default; set `PINECONE_CLOUD` and `PINECONE_REGION` to use another region.
-The first run waits for the index to become ready, which can take ~10–30 seconds.
-An existing index is reused only if its dimension and metric match; otherwise it is
-deleted and recreated automatically (so changing embedding models just works).
-
-## Usage
-
-The app is a web application. Run the backend and frontend:
-
-```bash
-# terminal 1 - backend API
-npm run server
-
-# terminal 2 - frontend
-cd frontend
-npm run dev
-```
-
-Then open http://localhost:5173, sign up, upload a PDF, and ask questions in the chat.
-
-Indexing (CLI, for development) requires a PDF path:
-
-```bash
-node src/indexing.js path/to/file.pdf
-node src/indexing.js path/to/file.pdf --dry-run
-```
-
-`--dry-run` loads and chunks the PDF, prints length/page-span statistics, and exits
-without reading API keys or touching Pinecone.
-
-```bash
-npm test        # syntax checks + behavioral tests (no API keys needed)
-```
-
-## Configuration
+### Environment variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `GEMINI_API_KEY` | yes | – | Gemini API key for embeddings and chat |
+| `GEMINI_API_KEY` | if gemini | – | Gemini API key (embeddings + chat) |
 | `PINECONE_API_KEY` | yes | – | Pinecone API key |
-| `PINECONE_INDEX_NAME` | yes | – | Index to create/use (see naming rules above) |
-| `PINECONE_CLOUD` | no | `aws` | Serverless cloud for a new index |
-| `PINECONE_REGION` | no | `us-east-1` | Serverless region for a new index |
+| `MONGODB_URI` | yes | – | MongoDB Atlas connection string |
+| `JWT_SECRET` | yes | – | JWT signing secret (≥32 chars) |
 | `LLM_PROVIDER` | no | `gemini` | `gemini` or `openrouter` |
 | `OPENROUTER_API_KEY` | if openrouter | – | OpenRouter API key |
-| `OPENROUTER_CHAT_MODEL` | no | `google/gemini-2.0-flash-exp:free` | Chat model on OpenRouter |
-| `OPENROUTER_EMBEDDING_MODEL` | no | `openai/text-embedding-3-small` | Embedding model on OpenRouter |
-| `EMBEDDING_DIMENSION` | no | auto | Override embedding dimension (1536 for OpenAI small) |
-| `EXTRACTION_MODEL` | no | chat model | Model used for entity extraction |
-| `AGENTIC_RAG` | no | `false` | Enable multi-step agentic RAG |
+| `OPENROUTER_CHAT_MODEL` | no | `inclusionai/ling-3.0-flash` | Chat model on OpenRouter |
+| `OPENROUTER_EMBEDDING_MODEL` | no | `perplexity/pplx-embed-v1-0.6b` | Embedding model on OpenRouter |
+| `EMBEDDING_DIMENSION` | no | auto | Override (1024 for Perplexity, 3072 for Gemini) |
+| `EXTRACTION_MODEL` | no | chat model | Model for entity extraction |
+| `NEO4J_URI` | no | – | Neo4j Aura connection URI |
+| `NEO4J_USERNAME` | no | – | Neo4j username |
+| `NEO4J_PASSWORD` | no | – | Neo4j password |
+| `GRAPH_RAG` | no | `false` | Enable graph building during indexing |
+| `AGENTIC_RAG` | no | `false` | Enable multi-step agentic retrieval |
+| `SCORE_THRESHOLD` | no | 0.5 (gemini) / 0.1 (openrouter) | Min cosine similarity for a chunk |
+| `TOP_K` | no | 4 | Chunks retrieved per search |
+| `PINECONE_CLOUD` | no | `aws` | Serverless cloud for new index |
+| `PINECONE_REGION` | no | `us-east-1` | Serverless region for new index |
+| `CORS_ORIGINS` | no | (all) | Comma-separated allowed origins |
 
-Blank values are treated as unset. `SCORE_THRESHOLD` must be a number between
-`-1` and `1`. Lower it (e.g. `0.5`) if valid questions are being rejected; raise
-it (e.g. `0.7`) if irrelevant chunks reach the prompt.
+Blank values are treated as unset. `SCORE_THRESHOLD` must be a number between `-1` and `1`.
 
-Other tuning constants live in `config.js`: the chat model, `DEFAULT_TOP_K` (4
-retrieved chunks), and `DEFAULT_MAX_HISTORY_MESSAGES` (10 messages of memory).
-Chunking constants (`CHUNK_SIZE`, `CHUNK_OVERLAP`, `MIN_CHUNK_SIZE`) live in
-`chunking.js`.
+## Running locally
+
+```bash
+# Terminal 1 — backend
+npm run server
+
+# Terminal 2 — frontend
+cd frontend && npm run dev
+```
+
+Open http://localhost:5173 → sign up → upload a PDF → ask questions.
+
+## Running tests
+
+```bash
+npm test            # syntax checks + 94 behavioral tests (no API keys needed)
+npm run test:syntax # syntax checks only
+```
 
 ## How indexing works
 
-- `pdfLoader.js` extracts text page by page using the PDF.js build bundled with
-  `pdf-parse`. No PDF loader package is needed.
-- `chunking.js` cleans repeated page headers, skips table-of-contents pages, and
-  builds chunks that can span page boundaries. Overlap is capped so no chunk
-  exceeds `CHUNK_SIZE`, and short document tails are kept rather than dropped.
-- Every chunk is embedded **before** the index is modified. If any embedding
-  batch fails, nothing is written and the previous index is left intact, so an
-  expired key or rate limit cannot destroy a working index.
-- Embedding and upserting are separate phases, so a failed upsert retries only
-  the write and never re-embeds the batch (avoiding duplicate quota use).
-- After embeddings succeed, the dedicated index is cleared and the prepared
-  vectors are upserted in batches. An already-empty index is skipped (Pinecone
-  returns 404 for a namespace that does not exist yet), so a fresh first run
-  no longer fails on the clear step. Deterministic IDs make reruns idempotent, and
-  a custom PDF path uses that file's name for IDs and `source` metadata.
-- Finally, the index stats are polled for up to 15 seconds to confirm that the
-  expected number of vectors is present. A mismatch exits with code 1.
-- Failed embed/upsert batches are retried up to 3 times with exponential backoff
-  and jitter. Transient errors (rate limits, timeouts, network failures, 5xx)
-  are retried; permanent errors (invalid API key, bad request, dimension
-  mismatch) fail fast. `Retry-After` headers are honored.
+- `pdfLoader.js` extracts text page by page using PDF.js (bundled with `pdf-parse`).
+- `chunking.js` cleans repeated headers, skips TOC pages, builds cross-page chunks.
+- Each chunk is embedded **before** the index is modified (safe against failures).
+- Embedding and upserting are separate phases (failed upserts don't re-embed).
+- Per-document vectors: each upload tags chunks with `documentId` and upserts (no full index clear), so multiple PDFs coexist.
+- Stale vectors for the same document are removed before re-indexing.
+- Index stats are polled to verify the expected vector count.
+- Failed batches are retried with exponential backoff + jitter; `Retry-After` headers honored.
+- If `GRAPH_RAG=true` and Neo4j is configured, entities and relations are extracted via LLM and stored in Neo4j (batched, parallel, ~3x faster than sequential).
+- The original PDF is deleted from disk after indexing (vectors + graph persist externally).
 
 ## How querying works
 
-- At startup, `query.js` checks that the index exists and that its dimension and
-  metric match the embedding model. A missing index prints
-  `Run "npm run index" first.` instead of failing on the first question.
-- Follow-up questions are rewritten into standalone search queries using a
-  separate temperature-0 model. Clearly standalone questions skip the rewrite
-  call, saving an LLM request on every turn.
-- If the rewrite fails, the original question is used.
-- The query embedding, Pinecone search, rewrite, and Gemini answer calls all use
-  the shared retry logic in `retry.js`.
-- Answers stream token by token so the terminal does not look frozen. If a stream
-  fails after printing part of an answer, it is not retried (which would duplicate
-  output); failures before the first token are retried normally.
-- The answer prompt asks Gemini to cite the `[Page N]` labels from the context,
-  and the query log prints the minimum/maximum retrieved scores so
-  `SCORE_THRESHOLD` can be tuned.
-- Retrieved chunks below `SCORE_THRESHOLD` are discarded. If none remain, the
-  session returns a fallback answer without calling the chat model.
-- Set `AGENTIC_RAG=true` to let the model plan and run multiple searches with its own
-  sub-queries before answering (useful for complex questions). Default mode uses a
-  single retrieval pass.
+- At startup, the backend verifies the Pinecone index exists and is compatible.
+- **Classic mode** (default): rewrite follow-up → embed query → Pinecone top-K → score filter → generate answer.
+- **Agentic mode** (`AGENTIC_RAG=true`): the LLM plans and runs multiple searches with its own sub-queries, can use graph queries, tables, calculator, and page fetcher tools.
+- **Document filtering**: select specific PDFs in the UI (or mention a document name in your question) to restrict search.
+- **Page-specific questions** ("what's on page 5?") pre-fetch the full page content.
+- Retrieved chunks below `SCORE_THRESHOLD` are discarded; if none remain, a fallback answer is returned.
+- Conversation memory is kept in-memory (last 10 messages) and pruned.
+- Greetings/compliments are answered by the LLM directly (no DB search).
 
-## Notes
+## LLM tools (agentic mode)
 
-- The index is treated as dedicated to the PDF you index, so reruns replace its
-  contents instead of accumulating duplicates. Use a namespace per document if
-  you need to keep multiple PDFs in one index.
-- `npm run reset -- --yes` empties the configured index and verifies the count is
-  zero. It is destructive, so the confirmation flag is required.
-- Indexing and querying share the model and client setup in `config.js`, so they
-  always agree on the embedding model, dimension, and metric.
-- Batch sizes, retry counts, chunk sizes, and polling limits are validated before
-  use, so an accidental zero cannot create an infinite loop.
-- `@langchain/community` and `readline-sync` were removed. PDF parsing uses the
-  bundled PDF.js engine in `pdf-parse`, and the prompt uses Node's built-in
-  `node:readline/promises`.
-
-## Tests
-
-`npm test` runs `node --check` on every source file and then the `node:test`
-suite in `test/`. The tests cover retry classification/backoff/jitter,
-`Retry-After`, chunking edge cases, config validation, batch embedding/upsert
-behavior, index verification, reset confirmation, CLI argument parsing, chunk
-statistics, and query session behavior (rewrite heuristic, streaming, citations,
-fallbacks, history pruning) using fake models and vector stores. They do not make
-network calls and do not need API keys.
+| Tool | Purpose |
+|---|---|
+| `search_documents` | Vector search (Pinecone) with optional document filter |
+| `get_page_content` | Fetch full text of a specific page |
+| `extract_tables` | Extract tabular data from a page |
+| `calculate` | Safe math evaluation |
+| `query_graph` | Cypher queries on Neo4j (relationships, traversal) |
+| `list_documents` | List all indexed documents |
+| `compare_documents` | Find shared entities across documents |
 
 ## Frontend (React)
-
-A React (Vite) frontend lives in `frontend/`. It currently provides **login/signup** and a **PDF upload** screen (drag-and-drop, PDF-only, 10 MB limit) with a per-user list of uploaded files. Auth and uploads are client-side (localStorage) for now; backend wiring comes later.
 
 ```bash
 cd frontend
@@ -170,12 +118,40 @@ npm run dev      # http://localhost:5173
 npm run build    # production build
 ```
 
+Features: login/signup, PDF upload (drag-and-drop, 25 MB, PDF only), per-PDF indexing progress (Vector DB + Graph DB bars), document filter pills, chat with markdown rendering + citations, "Build Graph" on-demand, remove (cleans vectors + graph), clear chat, export as PDF.
+
+## Deployment (Railway)
+
+```bash
+npm run build    # builds frontend
+npm start        # starts backend (serves frontend + API)
+```
+
+Set all env vars in Railway dashboard. The `railway.json` handles build/deploy. The backend serves the frontend from `frontend/dist`.
+
+## Files
 
 ```
-src/           Backend source (config, retry, chunking, pdfLoader, indexing, query, reset, tools, graph, entityExtractor, server, models, middleware, utils)
-tests/         node:test behavioral tests
+src/           Backend source
+  config.js     Env validation, models, constants, compatibility checks
+  retry.js      Shared retry/backoff helpers
+  chunking.js   Cross-page, content-aware chunking
+  pdfLoader.js  Page-by-page PDF text extraction
+  indexing.js   Build the index (multi-doc, graph, progress)
+  query.js      Chat session (classic + agentic, tools, citations)
+  reset.js      Delete all vectors from an index
+  tools.js      Agent tools (search, page, tables, calc, graph, compare)
+  graph.js      Neo4j Aura client + graph helpers
+  graphBuilder.js  Knowledge graph construction
+  entityExtractor.js  LLM entity/relation extraction
+  server.js     Express API + frontend serving
+  models/       Mongoose models (User, Pdf)
+  middleware/   Auth middleware
+  utils/        Helpers (index name, document matcher)
+tests/         node:test behavioral tests (94 tests)
 frontend/      React (Vite) frontend
-Pdf/           Source PDFs
 uploads/       Uploaded PDFs (gitignored, deleted after indexing)
 .env.example   Environment variable template
 ```
+EOF
+echo written

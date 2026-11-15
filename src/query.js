@@ -16,7 +16,7 @@ import {
 } from './retry.js';
 import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
 import * as graph from './graph.js';
-import { parsePageNumber, matchDocument } from './utils/documentMatcher.js';
+import { parsePageNumber } from './utils/documentMatcher.js';
 
 export const FALLBACK_ANSWER = "I don't have enough information to answer that question.";
 
