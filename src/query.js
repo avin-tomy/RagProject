@@ -14,36 +14,11 @@ import {
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
-import { parsePageNumber } from './utils/documentMatcher.js';
 import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
 import * as graph from './graph.js';
-
-// Short conversational messages (greetings, thanks, compliments) that should
-// never trigger a document search or a rewrite.
-const CONVERSATIONAL_PATTERNS = [
-    /^(hi|hello|hey|thanks|thank you|thx|ty|great|awesome|perfect|helpful|got it|ok|okay|sure|bye|goodbye|cool|nice|appreciate|cheers)\b/i,
-    /^(that'?s? (it|all|great|helpful|perfect|awesome)|you'?re (welcome|helpful)|no (problem|worries))\b/i,
-];
+import { parsePageNumber, matchDocument } from './utils/documentMatcher.js';
 
 export const FALLBACK_ANSWER = "I don't have enough information to answer that question.";
-
-export function conversationalReply(question) {
-    const text = String(question ?? '').trim().toLowerCase();
-    if (/^(hi|hello|hey)\b/.test(text)) return "Hello! How can I help you today?";
-    if (/^(thanks|thank you|thx|ty|cheers|appreciate)\b/.test(text)) return "You're welcome! Let me know if you have any other questions about the document.";
-    if (/^(bye|goodbye)\b/.test(text)) return "Goodbye! Feel free to come back anytime.";
-    return "You're welcome! Let me know if you have any other questions about the document.";
-}
-
-export function isConversational(question) {
-    const text = String(question ?? '').trim();
-    if (!text) return false;
-    // Short messages (≤4 words) that match a conversational pattern.
-    if (text.split(/\s+/).filter(Boolean).length <= 4 && CONVERSATIONAL_PATTERNS.some((p) => p.test(text))) {
-        return true;
-    }
-    return false;
-}
 
 function toText(content) {
     if (typeof content === 'string') return content;
@@ -53,45 +28,6 @@ function toText(content) {
     if (content && typeof content === 'object') return content.text ?? content.content ?? String(content);
     return String(content ?? '');
 }
-
-// Questions that refer back to the conversation need a standalone rewrite.
-// Clearly standalone questions skip the extra LLM call.
-const FOLLOW_UP_PATTERNS = [
-    /^(and|also|but|so|then|what about|how about|what else|anything else|why|how so)\b/i,
-    /\b(it|its|it's|they|them|their|theirs|this|that|these|those|he|him|his|she|her|hers|former|latter|above|previous|same|such)\b/i,
-];
-const SHORT_QUESTION_WORDS = 3;
-
-export function needsRewrite(question, chatHistory = []) {
-    if (!Array.isArray(chatHistory) || chatHistory.length === 0) return false;
-
-    const text = String(question ?? '').trim();
-    if (!text) return false;
-    if (isConversational(text)) return false;
-    if (FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text))) return true;
-
-    return text.split(/\s+/).filter(Boolean).length <= SHORT_QUESTION_WORDS;
-}
-
-export function formatScoreRange(scores) {
-    const values = scores.filter((score) => Number.isFinite(score));
-    if (values.length === 0) return null;
-    return `${Math.min(...values).toFixed(3)}-${Math.max(...values).toFixed(3)}`;
-}
-
-const rewritePrompt = ChatPromptTemplate.fromMessages([
-    ['system',
-`Given the conversation and a follow-up question, rewrite the follow-up question
-as a standalone question for searching documentation.
-
-Rules:
-- Keep the user's original meaning.
-- Resolve pronouns and references using the conversation.
-- If the follow-up is already standalone, return it unchanged.
-- Return ONLY the rewritten question, with no explanation.`],
-    new MessagesPlaceholder('chat_history'),
-    ['human', 'Follow-up question: {question}\nStandalone question:'],
-]);
 
 const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions based on the provided documentation.
 
@@ -115,9 +51,66 @@ const answerPrompt = ChatPromptTemplate.fromMessages([
 function pageRange(doc) {
     const start = doc.metadata?.page;
     const end = doc.metadata?.pageEnd;
-
     if (typeof start !== 'number') return null;
     return typeof end === 'number' && end !== start ? `${start}-${end}` : `${start}`;
+}
+
+const rewritePrompt = ChatPromptTemplate.fromMessages([
+    ['system',
+`Given the conversation and a follow-up question, rewrite the follow-up question
+as a standalone question for searching documentation.
+
+Rules:
+- Keep the user's original meaning.
+- Resolve pronouns and references using the conversation.
+- If the follow-up is already standalone, return it unchanged.
+- Return ONLY the rewritten question, with no explanation.`],
+    new MessagesPlaceholder('chat_history'),
+    ['human', 'Follow-up question: {question}\nStandalone question:'],
+]);
+
+const FOLLOW_UP_PATTERNS = [
+    /^(and|also|but|so|then|what about|how about|what else|anything else|why|how so)\b/i,
+    /\b(it|its|it's|they|them|their|theirs|this|that|these|those|he|him|his|she|her|hers|former|latter|above|previous|same|such)\b/i,
+];
+const SHORT_QUESTION_WORDS = 3;
+
+export function needsRewrite(question, chatHistory = []) {
+    if (!Array.isArray(chatHistory) || chatHistory.length === 0) return false;
+
+    const text = String(question ?? '').trim();
+    if (!text) return false;
+    if (isConversational(text)) return false;
+    if (FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text))) return true;
+
+    return text.split(/\s+/).filter(Boolean).length <= SHORT_QUESTION_WORDS;
+}
+
+export function formatScoreRange(scores) {
+    const values = scores.filter((score) => Number.isFinite(score));
+    if (values.length === 0) return null;
+    return `${Math.min(...values).toFixed(3)}-${Math.max(...values).toFixed(3)}`;
+}
+
+function conversationalReply(question) {
+    const text = String(question ?? '').trim().toLowerCase();
+    if (/^(hi|hello|hey)\b/.test(text)) return "Hello! How can I help you today?";
+    if (/^(thanks|thank you|thx|ty|cheers|appreciate)\b/.test(text)) return "You're welcome! Let me know if you have any other questions about the document.";
+    if (/^(bye|goodbye)\b/.test(text)) return "Goodbye! Feel free to come back anytime.";
+    return "You're welcome! Let me know if you have any other questions about the document.";
+}
+
+function isConversational(question) {
+    const CONVERSATIONAL_PATTERNS = [
+        /^(hi|hello|hey|thanks|thank you|thx|ty|great|awesome|perfect|helpful|got it|ok|okay|sure|bye|goodbye|cool|nice|appreciate|cheers)\b/i,
+        /^(that'?s? (it|all|great|helpful|perfect|awesome)|you'?re (welcome|helpful)|no (problem|worries))\b/i,
+    ];
+    const text = String(question ?? '').trim();
+    if (!text) return false;
+    if (text.split(/\s+/).filter(Boolean).length <= 4 && CONVERSATIONAL_PATTERNS.some((p) => p.test(text))) {
+        return true;
+    }
+    return false;
 }
 
 export function createChatSession({
@@ -134,7 +127,7 @@ export function createChatSession({
     maxAgentSteps = 3,
     indexName = null,
     documentFilter = null,
-    documents = [],
+    documents = null,
 } = {}) {
     if (!vectorStore || typeof vectorStore.similaritySearchWithScore !== 'function') {
         throw new Error('createChatSession requires a vectorStore');
@@ -171,19 +164,16 @@ export function createChatSession({
     const chain = answerPrompt.pipe(model).pipe(new StringOutputParser());
 
     const searchTool = agentic
-        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter, documents })
+        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter, documents: documents || [] })
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
-    // Always provide document listing so the agent can discover available docs.
-    if (agentic && documents && documents.length > 0) {
-        agentTools.push(createDocumentListTool(documents));
-    }
-    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents }));
-    agentTools.push(createExtractTablesTool(vectorStore, { documentFilter, documents }));
+    agentTools.push(createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] }));
+    agentTools.push(createExtractTablesTool(vectorStore, { documentFilter, documents: documents || [] }));
     agentTools.push(createCalculatorTool());
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
+        agentTools.push(createDocumentListTool(documents || []));
         agentTools.push(createCompareDocumentsTool(indexName));
     }
     const toolByName = Object.fromEntries(agentTools.map((t) => [t.name, t]));
@@ -218,7 +208,7 @@ export function createChatSession({
         const pageNum = parsePageNumber(question);
         if (pageNum) {
             try {
-                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents });
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });
                 const parsed = JSON.parse(raw);
                 if ((parsed.chunks ?? 0) > 0) {
@@ -255,23 +245,46 @@ export function createChatSession({
 Available documents:
 ${docList}
 
-You have these tools:
-- search_documents: retrieve passages relevant to a query (vector search). Use for factual questions.
-- get_page_content: retrieve the full text of a specific page number. Use when the user asks to see/read/show a specific page.
-- extract_tables: extract tabular data (fee schedules, rate cards, thresholds) from a specific page. Use when the user asks about tables, slabs, or structured data.
-- calculate: perform math calculations (percentages, interest, EMI, fees). Use for any numeric computation.
-- query_graph: run Cypher on the knowledge graph (relationships, traversal, aggregation).
-- list_documents: list all indexed documents.
-- compare_documents: find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?".
+You have these tools (use them as needed, in any order, multiple times):
 
-Rules:
-- For any factual question about a document, call search_documents at least once before answering.
-- For relationship/cross-document questions (e.g. "are these related?", "what do they share?"), call compare_documents.
-- You may call tools multiple times with different sub-queries.
-- Once you have enough context, stop searching and answer.
+1. search_documents(query, topK, document)
+   - Vector similarity search. Use for factual questions, definitions, procedures, rules.
+   - "document" param: restrict to a specific PDF by name (use list_documents to discover names).
+   - Returns: relevant passages with [Page N] labels and source filename.
+
+2. get_page_content(page, document)
+   - Fetch the full text of a specific page. Use when the user asks to see/read/show a page, or when search results are fragmented.
+
+3. extract_tables(page, document)
+   - Extract tabular data (fee schedules, rate cards, thresholds) from a page. Use when the user asks about tables, slabs, or structured data.
+
+4. calculate(expression)
+   - Safe math evaluator. Supports +, -, *, /, %, parentheses, Math functions.
+   - Use for any numeric computation: percentages, interest, EMI, fees, limits.
+
+5. query_graph(cypher, params)
+   - Read-only Cypher queries on the knowledge graph (Neo4j).
+   - Use for: relationships, traversal, aggregation, cross-document links.
+
+6. list_documents()
+   - List all indexed documents. Use first to discover document names.
+
+7. compare_documents()
+   - Find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?".
+
+Workflow guidelines:
+- For factual questions: call search_documents first, then answer from results.
+- For page-specific questions ("what's on page N"): call get_page_content.
+- For table/data questions: call extract_tables on the relevant page.
+- For math: call calculate instead of computing yourself.
+- For relationship questions: call compare_documents or query_graph.
+- For cross-document questions: call list_documents, then search_documents with "document" param for each.
+- You may call multiple tools in one step (parallel) when independent.
+- You may call tools across multiple steps to refine (search -> get_page_content for more detail).
+- Once you have enough context, stop calling tools and provide the final answer.
 - Answer only from retrieved context. Cite page numbers using [Page N].
 - If no relevant context is found, say "I don't have enough information to answer that question."
-- For greetings or meta questions, answer directly without searching.`;
+- For greetings or meta questions, answer directly without any tools.`;
 
         const messages = [
             new SystemMessage(
@@ -311,8 +324,8 @@ Rules:
                 break;
             }
 
-            console.log(`Step ${steps}: searching ${toolCalls.length} query(s)...`);
             searched = true;
+            console.log(`Step ${steps}: searching ${toolCalls.length} query(s)...`);
             const toolMessages = await Promise.all(toolCalls.map(async (tc) => {
                 const t = toolByName[tc.name];
                 const args = tc.args ?? {};
@@ -322,8 +335,12 @@ Rules:
                 if (tc.name === 'search_documents' && (parsed.count ?? 0) > 0) hasContext = true;
                 if (tc.name === 'search_documents') {
                     console.log(`  search "${args.query}" → ${parsed.count ?? 0} chunks`);
+                } else if (tc.name === 'get_page_content') {
+                    console.log(`  page ${args.page} → ${parsed.chunks ?? 0} chunks`);
+                } else if (tc.name === 'calculate') {
+                    console.log(`  calculate "${args.expression}" → ${parsed.result}`);
                 } else {
-                    console.log(`  graph query → ${parsed.count ?? 0} records`);
+                    console.log(`  ${tc.name} → ${parsed.count ?? parsed.records?.length ?? 'done'}`);
                 }
                 return new ToolMessage({ tool_call_id: tc.id, content: raw });
             }));
@@ -331,7 +348,7 @@ Rules:
         }
 
         if (finalAnswer === null) {
-            // Safety net: if no search returned context, try the original question directly.
+            // Safety net: if no context was gathered, try the original question directly.
             if (!hasContext) {
                 console.log('No context gathered; retrying with the original question...');
                 const raw = await searchTool.invoke({ query: question, topK: topK });
@@ -342,32 +359,26 @@ Rules:
                     messages.push(new ToolMessage({ tool_call_id: 'fallback', content: raw }));
                 }
             }
-            if (finalAnswer === null && hasContext) {
-                for (let attempt = 0; attempt < 2 && (!finalAnswer || !finalAnswer.trim()); attempt++) {
-                    if (attempt > 0) console.log('Empty response; retrying final answer...');
-                    const finalizer = model.bindTools([]);
-                    const finalMessages = [
-                        ...messages,
-                        new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
-                    ];
-                    const last = await withRetry(
-                        () => finalizer.invoke(finalMessages),
-                        { label: 'Finalizing answer', ...retryOptions }
-                    );
-                    if (last.ok) finalAnswer = toText(last.value.content);
-                }
+            for (let attempt = 0; attempt < 2 && (!finalAnswer || !finalAnswer.trim()); attempt++) {
+                if (attempt > 0) console.log('Empty response; retrying final answer...');
+                const finalizer = model.bindTools([]);
+                const finalMessages = [
+                    ...messages,
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
+                ];
+                const last = await withRetry(
+                    () => finalizer.invoke(finalMessages),
+                    { label: 'Finalizing answer', ...retryOptions }
+                );
+                if (last.ok) finalAnswer = toText(last.value.content);
             }
             if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
-        if (!hasContext) finalAnswer = FALLBACK_ANSWER;
         }
 
         if (searched && !hasContext && finalAnswer && !finalAnswer.toLowerCase().includes("don't have enough")) {
-            // The model answered without any supporting context; prefer the fallback.
             finalAnswer = FALLBACK_ANSWER;
         }
-
         if (!finalAnswer || !finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
-        if (!hasContext) finalAnswer = FALLBACK_ANSWER;
 
         chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();
@@ -421,18 +432,11 @@ Rules:
             return;
         }
 
-        const searchQuery = await rewriteQuestion(question);
-        if (searchQuery !== question) {
-            console.log(`Standalone search query: "${searchQuery}"`);
-        }
-
-        const recentHistory = chatHistory.slice(-6);
-
         // Detect page-specific questions and pre-fetch that page's content.
         const pageNum = parsePageNumber(question);
         if (pageNum) {
             try {
-                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents });
+                const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });
                 const parsed = JSON.parse(raw);
                 if ((parsed.chunks ?? 0) > 0) {
@@ -440,13 +444,14 @@ Rules:
                     console.log(`Using full content of page ${pageNum}.`);
                     const context = ctx;
                     console.log('Generating answer with Gemini...');
-                    const payload = { context: `[Page ${pageNum}]\n${context}`, question, chat_history: recentHistory };
+                    const payload = { context: `[Page ${pageNum}]\n${context}`, question, chat_history: chatHistory.slice(-6) };
                     let answerResult;
                     if (streaming) {
                         let wroteChunk = false;
                         answerResult = await withRetry(async () => {
                             wroteChunk = false;
                             let answer = '';
+
                             try {
                                 const stream = await chain.stream(payload);
                                 for await (const chunk of stream) {
@@ -464,6 +469,7 @@ Rules:
                                 }
                                 throw err;
                             }
+
                             return answer;
                         }, { label: 'Generating answer', ...retryOptions });
                     } else {
@@ -493,6 +499,13 @@ Rules:
                 console.warn('Page pre-fetch failed:', e.message);
             }
         }
+
+        const searchQuery = await rewriteQuestion(question);
+        if (searchQuery !== question) {
+            console.log(`Standalone search query: "${searchQuery}"`);
+        }
+
+        const recentHistory = chatHistory.slice(-6);
 
         console.log(`Embedding the query and searching Pinecone for the top ${topK} matching chunks...`);
         const searchResult = await withRetry(
@@ -548,8 +561,6 @@ Rules:
                     }
                 } catch (err) {
                     if (wroteChunk) {
-                        // Partial output was already printed; retrying would
-                        // duplicate it, so surface the error instead.
                         onToken('\n');
                         const wrapped = new Error(errorMessage(err));
                         wrapped.retryable = false;
@@ -571,25 +582,13 @@ Rules:
             throw new Error(`Gemini answer failed: ${answerResult.message}`);
         }
 
-        let finalAnswer = answerResult.value || '';
-        // Retry once if the model returned an empty response.
-        if (!finalAnswer.trim() && !streaming) {
-            console.log('Empty response; retrying answer...');
-            const retryResult = await withRetry(
-                () => chain.invoke(payload),
-                { label: 'Generating answer (retry)', ...retryOptions }
-            );
-            if (retryResult.ok && retryResult.value?.trim()) {
-                finalAnswer = retryResult.value;
-            }
-        }
-        if (!finalAnswer.trim()) finalAnswer = FALLBACK_ANSWER;
-
+        const answer = answerResult.value || FALLBACK_ANSWER;
+        const finalAnswer = answer.trim() ? answer : FALLBACK_ANSWER;
         chatHistory.push(new HumanMessage(question), new AIMessage(finalAnswer));
         pruneHistory();
 
         if (streaming) {
-            if (finalAnswer === FALLBACK_ANSWER && !answerResult.value?.trim()) {
+            if (finalAnswer === FALLBACK_ANSWER && !answer.trim()) {
                 onToken(FALLBACK_ANSWER);
             }
             onToken('\n');
@@ -601,4 +600,6 @@ Rules:
     return { chatting, chatHistory, rewriteQuestion };
 }
 
-// Module used as a library by the web server. Exports createChatSession, needsRewrite, formatScoreRange.
+export async function start() {
+    // Removed - web app uses server.js
+}
