@@ -164,7 +164,7 @@ export function createChatSession({
     const chain = answerPrompt.pipe(model).pipe(new StringOutputParser());
 
     const searchTool = agentic
-        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: topK, documentFilter, documents: documents || [] })
+        ? createSearchTool(vectorStore, { scoreThreshold, defaultTopK: Math.max(topK, 10), documentFilter, documents: documents || [] })
         : null;
     const agentTools = [];
     if (searchTool) agentTools.push(searchTool);
