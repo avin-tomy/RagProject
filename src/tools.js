@@ -70,7 +70,7 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
             schema: z.object({
                 query: z.string().describe('A focused, standalone search query'),
                 topK: z.number().int().min(1).max(20).optional()
-                    .describe('Number of chunks to retrieve (default 10)'),
+                    .describe('Number of chunks to retrieve (default 6)'),
                 document: z.string().optional()
                     .describe(`Restrict search to a specific document by name. Available: ${docNames}`),
             }),
