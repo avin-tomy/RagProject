@@ -35,7 +35,7 @@ Instructions:
 - Answer using ONLY the information in the context below and the conversation above.
 - If the answer is not in the context, say "I don't have enough information to answer that question."
 - If only part of the answer is available, state what is known and what is missing.
-- Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]...").
+- Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]..."). Cite a page for EVERY factual claim, including names, dates, and figures.
 - When multiple documents are present, also cite the source filename for each claim.
 - Be concise and clear.
 - Use code examples from the context if relevant.
@@ -276,14 +276,16 @@ You have tools. Use them to gather evidence before answering. Follow this workfl
 
 4. Answer:
    - Answer ONLY from retrieved context. If no relevant context was found, say "I don't have enough information to answer that question."
-   - Cite page numbers as [Page N]. When multiple documents are involved, also cite the source filename.
+   - Cite page numbers as [Page N] for EVERY factual claim, including names, dates, and figures. When multiple documents are involved, also cite the source filename.
    - Do not fabricate page numbers, facts, or values.
+   - For multi-part questions, decompose into sub-queries and retrieve thoroughly across all relevant pages and tables before concluding information is missing.
    - Be concise and clear.
 
 Rules:
 - Never call the same tool with the same arguments twice.
 - Prefer parallel calls for independent sub-queries.
 - Do not call tools for greetings or meta questions.
+- ALWAYS use the calculate tool for ANY arithmetic, even simple addition or division. Never compute numbers in your head.
 - If a tool returns an error or empty result, try an alternative approach or state the limitation.
 - Once you have enough context, stop calling tools and provide the final answer.`;
 
@@ -370,7 +372,7 @@ Rules:
                 const finalizer = model.bindTools([]);
                 const finalMessages = [
                     ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers. If the context is insufficient, say so.'),
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. If the context is insufficient, say so.'),
                 ];
                 const last = await withRetry(
                     () => finalizer.invoke(finalMessages),
