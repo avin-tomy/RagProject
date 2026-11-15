@@ -496,7 +496,12 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
             await pineconeIndex.deleteMany({ documentId });
             console.log('Stale vectors removed');
         } catch (err) {
-            throw new Error(`Could not remove stale vectors: ${err.message}`);
+            // A 404 means there is nothing to delete (empty/fresh index); treat as success.
+            if (isNotFoundError(err)) {
+                console.log('No stale vectors found (fresh index).');
+            } else {
+                throw new Error(`Could not remove stale vectors: ${err.message}`);
+            }
         }
     } else if (existingCount === 0) {
         console.log('Index is already empty; nothing to clear');
