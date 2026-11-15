@@ -70,6 +70,9 @@ Rules:
 - Only extract entities actually present. Do not invent.
 - Keep names concise and consistent.
 - Empty passage => {"entities":[],"relations":[]}.
+- Return valid JSON only (no markdown fences, no commentary).
+- Keep entity names canonical and consistent across passages.
+- Do not include passage text in the output.
 
 Passages:
 ${passages}`;

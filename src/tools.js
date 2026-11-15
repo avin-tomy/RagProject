@@ -73,6 +73,7 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
                 'Use this for any factual question about the document. You may call it ' +
                 'multiple times with different, focused sub-queries to gather enough ' +
                 'context before answering. Prefer specific standalone search phrases. ' +
+                'Do not repeat the same query; vary phrasing for different aspects. ' +
                 `Available documents: ${docNames}. Pass a "document" param to search a specific one.`,
             schema: z.object({
                 query: z.string().describe('A focused, standalone search query'),

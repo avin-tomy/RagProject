@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import ChatPanel from '../components/ChatPanel';
 
 export default function Chat() {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
   return (

@@ -32,11 +32,15 @@ function toText(content) {
 const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions based on the provided documentation.
 
 Instructions:
-- Answer the question using ONLY the information in the context below and the conversation above.
+- Answer using ONLY the information in the context below and the conversation above.
 - If the answer is not in the context, say "I don't have enough information to answer that question."
+- If only part of the answer is available, state what is known and what is missing.
 - Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]...").
+- When multiple documents are present, also cite the source filename for each claim.
 - Be concise and clear.
-- Use code examples from the context if relevant.`;
+- Use code examples from the context if relevant.
+- Do not speculate or add information not present in the context.
+- Preserve numbers, dates, and units exactly as written.`;
 
 const answerSystemMessage = LLM_PROVIDER === 'openrouter'
     ? new SystemMessage({ content: [{ type: 'text', text: ANSWER_SYSTEM_TEXT, cache_control: { type: 'ephemeral' } }] })
@@ -61,9 +65,11 @@ const rewritePrompt = ChatPromptTemplate.fromMessages([
 as a standalone question for searching documentation.
 
 Rules:
-- Keep the user's original meaning.
-- Resolve pronouns and references using the conversation.
+- Keep the user's original meaning and intent.
+- Resolve pronouns and references (it, they, this, that, the above, etc.) using the conversation.
+- Preserve document names, named entities, and numeric values exactly.
 - If the follow-up is already standalone, return it unchanged.
+- If the follow-up introduces a new, unrelated topic, return it unchanged.
 - Return ONLY the rewritten question, with no explanation.`],
     new MessagesPlaceholder('chat_history'),
     ['human', 'Follow-up question: {question}\nStandalone question:'],
@@ -190,7 +196,7 @@ export function createChatSession({
 
     async function agenticChat(question) {
         if (isConversational(question)) {
-            const convPrompt = "You are a friendly assistant. Respond naturally and concisely to the user's message. Do not search any documents.";
+            const convPrompt = "You are a friendly assistant. Respond naturally and concisely (1-3 sentences). Do not search any documents. If the user asks a factual question about a document, gently point them to ask it directly.";
             const msgs = [new SystemMessage(convPrompt), ...chatHistory, new HumanMessage(question)];
             const result = await withRetry(() => model.invoke(msgs), { label: 'Conversational reply', ...retryOptions });
             const reply = result.ok ? toText(result.value.content) : conversationalReply(question);
@@ -216,7 +222,7 @@ export function createChatSession({
                 if ((parsed.chunks ?? 0) > 0) {
                     const ctx = parsed.content;
                     const messages = [
-                        new SystemMessage('You are a helpful assistant. Answer the question based on the provided page content. Cite the page number.'),
+                        new SystemMessage('You are a helpful assistant. Answer using only the provided page content. Cite the page number. If the content does not contain the answer, say so.'),
                         ...chatHistory.slice(-6),
                         new HumanMessage(`Context from page ${pageNum}:\n\n${ctx}\n\nQuestion: ${question}`),
                     ];
@@ -247,47 +253,36 @@ export function createChatSession({
 Available documents:
 ${docList}
 
-You have these tools (use them as needed, in any order, multiple times):
+You have tools. Use them to gather evidence before answering. Follow this workflow:
 
-1. search_documents(query, topK, document)
-   - Vector similarity search. Use for factual questions, definitions, procedures, rules.
-   - "document" param: restrict to a specific PDF by name (use list_documents to discover names).
-   - Returns: relevant passages with [Page N] labels and source filename.
+1. Decide whether tools are needed:
+   - Greetings, thanks, or meta/small-talk: answer directly, do not call any tools.
+   - Any factual question about the documents: use tools.
 
-2. get_page_content(page, document)
-   - Fetch the full text of a specific page. Use when the user asks to see/read/show a page, or when search results are fragmented.
+2. Plan retrieval (call tools; parallelize independent calls in one step):
+   - Simple fact: one search_documents call with a focused, standalone query.
+   - Complex or multi-part question: decompose into focused sub-queries and call search_documents for each.
+   - Cross-document question: call list_documents first, then search_documents with the "document" param for each relevant document.
+   - "What is on page N" / full page text: get_page_content.
+   - Tables, slabs, rate cards, thresholds: extract_tables on the relevant page.
+   - Any numeric computation (percentages, interest, EMI, fees, limits): calculate. Never compute in your head.
+   - Relationships, traversal, aggregation, cross-document links: query_graph (read-only Cypher; always filter by $indexName).
+   - Compare documents / shared concepts: compare_documents.
 
-3. extract_tables(page, document)
-   - Extract tabular data (fee schedules, rate cards, thresholds) from a page. Use when the user asks about tables, slabs, or structured data.
+3. Iterate: after tool results, decide if you have enough. If not, refine (e.g., get_page_content for a promising page, or a new search with different phrasing). Stop once sufficient.
 
-4. calculate(expression)
-   - Safe math evaluator. Supports +, -, *, /, %, parentheses, Math functions.
-   - Use for any numeric computation: percentages, interest, EMI, fees, limits.
+4. Answer:
+   - Answer ONLY from retrieved context. If no relevant context was found, say "I don't have enough information to answer that question."
+   - Cite page numbers as [Page N]. When multiple documents are involved, also cite the source filename.
+   - Do not fabricate page numbers, facts, or values.
+   - Be concise and clear.
 
-5. list_documents()
-   - List all indexed documents. Use first to discover document names.
-
-${graph.getDriver() ? `6. query_graph(cypher, params)
-   - Read-only Cypher queries on the knowledge graph (Neo4j).
-   - Use for: relationships, traversal, aggregation, cross-document links.
-
-7. compare_documents()
-   - Find entities/concepts shared across documents. Use for "are these related?", "what do they have in common?".
-` : ''}
-
-Workflow guidelines:
-- For factual questions: call search_documents first, then answer from results.
-- For page-specific questions ("what's on page N"): call get_page_content.
-- For table/data questions: call extract_tables on the relevant page.
-- For math: call calculate instead of computing yourself.
-- For relationship questions: call compare_documents or query_graph.
-- For cross-document questions: call list_documents, then search_documents with "document" param for each.
-- You may call multiple tools in one step (parallel) when independent.
-- You may call tools across multiple steps to refine (search -> get_page_content for more detail).
-- Once you have enough context, stop calling tools and provide the final answer.
-- Answer only from retrieved context. Cite page numbers using [Page N].
-- If no relevant context is found, say "I don't have enough information to answer that question."
-- For greetings or meta questions, answer directly without any tools.`;
+Rules:
+- Never call the same tool with the same arguments twice.
+- Prefer parallel calls for independent sub-queries.
+- Do not call tools for greetings or meta questions.
+- If a tool returns an error or empty result, try an alternative approach or state the limitation.
+- Once you have enough context, stop calling tools and provide the final answer.`;
 
         const messages = [
             new SystemMessage(
@@ -372,7 +367,7 @@ Workflow guidelines:
                 const finalizer = model.bindTools([]);
                 const finalMessages = [
                     ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers.'),
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite page numbers. If the context is insufficient, say so.'),
                 ];
                 const last = await withRetry(
                     () => finalizer.invoke(finalMessages),
@@ -424,7 +419,7 @@ Workflow guidelines:
         }
 
         if (isConversational(question)) {
-            const convPrompt = "You are a friendly assistant. Respond naturally and concisely to the user's message. Do not search any documents.";
+            const convPrompt = "You are a friendly assistant. Respond naturally and concisely (1-3 sentences). Do not search any documents. If the user asks a factual question about a document, gently point them to ask it directly.";
             const msgs = [new SystemMessage(convPrompt), ...chatHistory, new HumanMessage(question)];
             const result = await withRetry(() => model.invoke(msgs), { label: 'Conversational reply', ...retryOptions });
             const reply = result.ok ? toText(result.value.content) : conversationalReply(question);

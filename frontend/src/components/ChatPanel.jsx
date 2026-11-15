@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
 
-export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
+export default function ChatPanel({ selectedDocIds = [] }) {
   const { authFetch, user } = useAuth();
   const storageKey = user ? `rag_chat_${user.id}` : null;
   const [messages, setMessages] = useState(() => {
@@ -72,7 +72,7 @@ export default function ChatPanel({ pdfs = [], selectedDocIds = [] }) {
   function SafeMarkdown({ content }) {
     try {
       return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
-    } catch (e) {
+    } catch {
       return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>;
     }
   }
