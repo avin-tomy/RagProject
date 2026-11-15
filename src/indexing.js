@@ -12,12 +12,11 @@ import {
     getProviderEnv,
     EMBEDDING_DIMENSION,
     INDEX_METRIC,
-    createExtractionModel,
 } from './config.js';
 import { chunkPages, cleanPageText, isTableOfContents, CHUNK_SIZE } from './chunking.js';
 import { loadPdfPages } from './pdfLoader.js';
 import * as graph from './graph.js';
-import { extractEntitiesBatch } from './entityExtractor.js';
+
 import {
     withRetry,
     validateRetryOptions,

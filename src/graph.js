@@ -88,60 +88,6 @@ export async function batchUpsertChunks(indexName, docName, chunks) {
     }
 }
 
-export async function upsertEntity(indexName, entity) {
-    if (!driver) return;
-    const session = driver.session();
-    try {
-        await session.run(
-            `MERGE (e:Entity {indexName: $indexName, name: $name, type: $type})
-             SET e.description = $description`,
-            { indexName, name: entity.name, type: entity.type, description: entity.description || '' }
-        );
-    } finally {
-        await session.close();
-    }
-}
-
-export async function linkChunkEntity(indexName, chunkId, entityName, entityType) {
-    if (!driver) return;
-    const session = driver.session();
-    try {
-        await session.run(
-            `MATCH (c:Chunk {indexName: $indexName, id: $chunkId})
-             MATCH (e:Entity {indexName: $indexName, name: $entityName, type: $entityType})
-             MERGE (c)-[:MENTIONS]->(e)`,
-            { indexName, chunkId, entityName, entityType }
-        );
-    } finally {
-        await session.close();
-    }
-}
-
-export async function upsertRelation(indexName, rel, documentId) {
-    if (!driver) return;
-    const session = driver.session();
-    try {
-        await session.run(
-            `MATCH (a:Entity {indexName: $indexName, name: $from, type: $fromType})
-             MATCH (b:Entity {indexName: $indexName, name: $to, type: $toType})
-             MERGE (a)-[r:RELATES_TO {type: $relType, documentId: $documentId}]->(b)
-             SET r.evidence = $evidence`,
-            {
-                indexName,
-                from: rel.from,
-                fromType: rel.fromType,
-                to: rel.to,
-                toType: rel.toType,
-                relType: rel.type,
-                evidence: rel.evidence || '',
-                documentId: documentId || '',
-            }
-        );
-    } finally {
-        await session.close();
-    }
-}
-
 export async function clearGraphDocument(indexName, documentId) {
     if (!driver) return;
     const session = driver.session();

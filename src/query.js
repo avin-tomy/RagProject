@@ -17,6 +17,8 @@ import {
 import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
 import * as graph from './graph.js';
 import { parsePageNumber } from './utils/documentMatcher.js';
+import { pageRange } from './utils/pageRange.js';
+import { formatScoreRange } from './utils/scoreRange.js';
 
 export const FALLBACK_ANSWER = "I don't have enough information to answer that question.";
 
@@ -33,7 +35,7 @@ const ANSWER_SYSTEM_TEXT = `You are a helpful assistant answering questions base
 
 Instructions:
 - Answer using ONLY the information in the context below and the conversation above.
-- If the answer is not in the context, say "I don't have enough information to answer that question." Do not conclude the answer is unavailable unless the context clearly lacks any relevant passage.
+- If no passage supports any part of the answer, say "I don't have enough information to answer that question."
 - If only part of the answer is available, state what is known and what is missing rather than saying you have no information at all.
 - Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]..."). Cite a page for EVERY factual claim, including names, dates, and figures.
 - When multiple documents are present, also cite the source filename for each claim.
@@ -51,13 +53,6 @@ const answerPrompt = ChatPromptTemplate.fromMessages([
     new MessagesPlaceholder('chat_history'),
     ['human', 'Context from the documentation:\n{context}\n\nQuestion: {question}\n\nAnswer:'],
 ]);
-
-function pageRange(doc) {
-    const start = doc.metadata?.page;
-    const end = doc.metadata?.pageEnd;
-    if (typeof start !== 'number') return null;
-    return typeof end === 'number' && end !== start ? `${start}-${end}` : `${start}`;
-}
 
 const rewritePrompt = ChatPromptTemplate.fromMessages([
     ['system',
@@ -93,11 +88,7 @@ export function needsRewrite(question, chatHistory = []) {
     return text.split(/\s+/).filter(Boolean).length <= SHORT_QUESTION_WORDS;
 }
 
-export function formatScoreRange(scores) {
-    const values = scores.filter((score) => Number.isFinite(score));
-    if (values.length === 0) return null;
-    return `${Math.min(...values).toFixed(3)}-${Math.max(...values).toFixed(3)}`;
-}
+export { formatScoreRange };
 
 function conversationalReply(question) {
     const text = String(question ?? '').trim().toLowerCase();
@@ -133,7 +124,7 @@ export function createChatSession({
     agentic = false,
     maxAgentSteps = (Number.isInteger(Number(process.env.AGENTIC_MAX_STEPS)) && Number(process.env.AGENTIC_MAX_STEPS) >= 1)
         ? Number(process.env.AGENTIC_MAX_STEPS)
-        : 3,
+        : 5,
     indexName = null,
     documentFilter = null,
     documents = null,
@@ -277,6 +268,7 @@ You have tools. Use them to gather evidence before answering. Follow this workfl
 
 4. Answer:
    - Answer ONLY from retrieved context. If no relevant context was found, say "I don't have enough information to answer that question."
+- Do not declare "not enough information" on the first retrieval pass. Only do so after at least 2 retrieval rounds with varied phrasing (and fetching full pages of promising results) have failed to answer any sub-part.
    - Cite page numbers as [Page N] for EVERY factual claim, including names, dates, and figures. When multiple documents are involved, also cite the source filename.
    - Do not fabricate page numbers, facts, or values.
    - For multi-part questions, decompose into sub-queries and retrieve thoroughly across all relevant pages and tables before concluding information is missing.
@@ -286,8 +278,6 @@ Rules:
 - Never call the same tool with the same arguments twice.
 - Prefer parallel calls for independent sub-queries.
 - Do not call tools for greetings or meta questions.
-- ALWAYS use the calculate tool for ANY arithmetic, even simple addition or division. Never compute numbers in your head.
-- Minimum effort before giving up: do not conclude "not enough information" until you have issued at least 2-3 different search queries with varied phrasing, and, if a promising page appears, fetched its full content with get_page_content.
 - Self-check before giving up: verify you searched for each sub-part of the question. If any sub-part is unaddressed, search again before concluding.
 - If a search returns chunks but does not fully answer, retry with broader or differently worded queries, or fetch the full page of the most relevant result.
 - If a tool returns an error or empty result, try an alternative approach or state the limitation.
@@ -328,7 +318,19 @@ Rules:
 
             const toolCalls = ai.tool_calls ?? [];
             if (toolCalls.length === 0) {
-                finalAnswer = toText(ai.content);
+                const candidate = toText(ai.content);
+                const seemsInsufficient = /don't have enough|not enough information|could not find|unable to find|insufficient/i.test(candidate);
+                // Don't accept a premature "not enough information" answer; force more retrieval.
+                if (seemsInsufficient && searched && steps < maxAgentSteps) {
+                    console.log('Answer looks insufficient; forcing additional retrieval...');
+                    messages.push(new HumanMessage(
+                        'Your previous answer concluded information is missing. Do not conclude yet. ' +
+                        'Run at least 2 more varied searches with different phrasing, and fetch the full content ' +
+                        'of any promising page with get_page_content, then answer. Do not repeat prior queries.'
+                    ));
+                    continue;
+                }
+                finalAnswer = candidate;
                 break;
             }
 
@@ -368,7 +370,7 @@ Rules:
                 try { parsed = JSON.parse(raw); } catch { parsed = {}; }
                 if ((parsed.count ?? 0) > 0) {
                     hasContext = true;
-                    messages.push(new ToolMessage({ tool_call_id: 'fallback', content: raw }));
+                    messages.push(new HumanMessage(`Retrieved context (fallback search):\n${raw}`));
                 }
             }
             for (let attempt = 0; attempt < 2 && (!finalAnswer || !finalAnswer.trim()); attempt++) {
@@ -611,8 +613,4 @@ Rules:
     }
 
     return { chatting, chatHistory, rewriteQuestion };
-}
-
-export async function start() {
-    // Removed - web app uses server.js
 }

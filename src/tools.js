@@ -1,19 +1,9 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import * as graph from './graph.js';
-
-function formatScoreRange(scores) {
-    const values = scores.filter((score) => Number.isFinite(score));
-    if (values.length === 0) return null;
-    return `${Math.min(...values).toFixed(3)}-${Math.max(...values).toFixed(3)}`;
-}
-
-function pageRange(doc) {
-    const start = doc.metadata?.page;
-    const end = doc.metadata?.pageEnd;
-    if (typeof start !== 'number') return null;
-    return typeof end === 'number' && end !== start ? `${start}-${end}` : `${start}`;
-}
+import { pageRange } from './utils/pageRange.js';
+import { formatScoreRange } from './utils/scoreRange.js';
+import { normalizeName } from './utils/normalize.js';
 
 export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10, documentFilter = null, documents = [] } = {}) {
     const docNames = (documents || []).map((d) => d.name).join(', ') || 'none';
@@ -27,7 +17,7 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
 
             let filter = documentFilter ? { ...documentFilter } : null;
             if (document) {
-                const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const norm = normalizeName;
                 const dn = norm(document);
                 const matched = (documents || []).find((d) => {
                     const n = norm(d.name);
@@ -190,7 +180,7 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
             const pageFilter = { $or: [{ page }, { pageEnd: page }] };
             let filter = documentFilter ? { $and: [documentFilter, pageFilter] } : pageFilter;
             if (document) {
-                const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const norm = normalizeName;
                 const dn = norm(document);
                 const matched = docs.find((d) => {
                     const n = norm(d.name);
@@ -236,7 +226,7 @@ export function createExtractTablesTool(vectorStore, { documentFilter = null, do
             const pageFilter = { $or: [{ page }, { pageEnd: page }] };
             let filter = documentFilter ? { $and: [documentFilter, pageFilter] } : pageFilter;
             if (document) {
-                const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const norm = normalizeName;
                 const dn = norm(document);
                 const matched = docs.find((d) => {
                     const n = norm(d.name);

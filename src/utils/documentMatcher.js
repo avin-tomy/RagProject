@@ -1,3 +1,5 @@
+import { normalizeName } from './normalize.js';
+
 const NUMBER_WORDS = {
     one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
     first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
@@ -15,7 +17,7 @@ export function matchDocument(question, documents) {
     if (!documents || documents.length === 0) return { matched: null, suggestion: null };
 
     const q = String(question || '').toLowerCase();
-    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const norm = normalizeName;
 
     // 1. Try "page <num/word> of/in/from <docname>"
     const pageDocMatch = q.match(/page\s+\w+\s+(?:of|in|from|in the|from the)\s+(.+?)(?:\s*[?.!,]|\s*$)/i);

@@ -12,7 +12,7 @@
     "server": "node src/server.js",
     "start": "node src/server.js",
     "test": "npm run test:syntax && node --test tests/*.test.js",
-    "test:syntax": "node --check src/config.js && node --check src/retry.js && node --check src/chunking.js && node --check src/pdfLoader.js && node --check src/indexing.js && node --check src/query.js && node --check src/reset.js && node --check src/server.js && node --check src/tools.js && node --check src/graph.js && node --check src/entityExtractor.js && node --check src/graphBuilder.js && node --check src/models/User.js && node --check src/models/Pdf.js && node --check src/middleware/auth.js && node --check src/utils/indexName.js && node --check src/utils/documentMatcher.js"
+    "test:syntax": "node --check src/config.js && node --check src/retry.js && node --check src/chunking.js && node --check src/pdfLoader.js && node --check src/indexing.js && node --check src/query.js && node --check src/reset.js && node --check src/server.js && node --check src/tools.js && node --check src/graph.js && node --check src/entityExtractor.js && node --check src/graphBuilder.js && node --check src/models/User.js && node --check src/models/Pdf.js && node --check src/middleware/auth.js && node --check src/utils/indexName.js && node --check src/utils/documentMatcher.js && node --check src/utils/pageRange.js && node --check src/utils/scoreRange.js && node --check src/utils/normalize.js"
   },
   "keywords": [
     "rag",
