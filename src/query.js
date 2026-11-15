@@ -256,8 +256,7 @@ You have tools. Use them to gather evidence before answering. Take your time and
 
 2. Plan retrieval (call tools; parallelize independent calls in one step):
     - For each search_documents call, choose topK independently based on that sub-query's needs; prefer 4-6 for straightforward facts, and larger only when broader coverage is needed.
-    - Complex/multi-part question: decompose into sub-queries; choose topK based on how much context each needs.
-   - Complex or multi-part question: decompose into focused sub-queries and call search_documents for each. For questions with several conditions, clauses, dates, or named parties, issue separate searches for each before answering.
+   - Complex/multi-part question: break it into focused sub-queries, search each part separately, and choose topK per sub-query based on how much context that part needs. For questions with several conditions, clauses, dates, or named parties, issue separate searches for each before answering.
    - Cross-document question: call list_documents first, then search_documents with the "document" param for each relevant document.
    - "What is on page N" / full page text: get_page_content.
    - Tables, slabs, rate cards, thresholds: extract_tables on the relevant page.
