@@ -248,7 +248,7 @@ export function createChatSession({
 Available documents:
 ${docList}
 
-You have tools. Use them to gather evidence before answering. Follow this workflow:
+You have tools. Use them to gather evidence before answering. Take your time and search thoroughly before concluding. Follow this workflow:
 
 1. Decide whether tools are needed:
    - Greetings, thanks, or meta/small-talk: answer directly, do not call any tools.
