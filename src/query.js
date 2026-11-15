@@ -130,7 +130,9 @@ export function createChatSession({
     streaming = false,
     onToken = (token) => process.stdout.write(token),
     agentic = false,
-    maxAgentSteps = 3,
+    maxAgentSteps = (Number.isInteger(Number(process.env.AGENTIC_MAX_STEPS)) && Number(process.env.AGENTIC_MAX_STEPS) >= 1)
+        ? Number(process.env.AGENTIC_MAX_STEPS)
+        : 3,
     indexName = null,
     documentFilter = null,
     documents = null,
