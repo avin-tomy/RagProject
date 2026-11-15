@@ -255,7 +255,7 @@ You have tools. Use them to gather evidence before answering. Take your time and
    - Any factual question about the documents: use tools.
 
 2. Plan retrieval (call tools; parallelize independent calls in one step):
-    - Always set topK yourself based on how much context the query needs (omit only if unsure; default is 4).
+    - For each search_documents call, choose topK independently based on that sub-query's needs; prefer 4-6 for straightforward facts, and larger only when broader coverage is needed.
     - Complex/multi-part question: decompose into sub-queries; choose topK based on how much context each needs.
    - Complex or multi-part question: decompose into focused sub-queries and call search_documents for each. For questions with several conditions, clauses, dates, or named parties, issue separate searches for each before answering.
    - Cross-document question: call list_documents first, then search_documents with the "document" param for each relevant document.
