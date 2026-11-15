@@ -256,7 +256,7 @@ You have tools. Use them to gather evidence before answering. Take your time and
 
 2. Plan retrieval (call tools; parallelize independent calls in one step):
    - Simple fact: one search_documents call with a focused, standalone query.
-   - Complex or multi-part question: decompose into focused sub-queries and call search_documents for each.
+   - Complex or multi-part question: decompose into focused sub-queries and call search_documents for each. For questions with several conditions, clauses, dates, or named parties, issue separate searches for each before answering.
    - Cross-document question: call list_documents first, then search_documents with the "document" param for each relevant document.
    - "What is on page N" / full page text: get_page_content.
    - Tables, slabs, rate cards, thresholds: extract_tables on the relevant page.
@@ -319,7 +319,7 @@ Rules:
             const toolCalls = ai.tool_calls ?? [];
             if (toolCalls.length === 0) {
                 const candidate = toText(ai.content);
-                const seemsInsufficient = /don't have enough|not enough information|could not find|unable to find|insufficient/i.test(candidate);
+                const seemsInsufficient = /don't have enough|do not have enough|not enough (information|context)|insufficient (information|context)|could not find|unable to find|unable to answer|cannot answer|cannot fully|not able to (find|answer)|no (relevant|supporting) (information|context|passages)/i.test(candidate);
                 // Don't accept a premature "not enough information" answer; force more retrieval.
                 if (seemsInsufficient && searched && steps < maxAgentSteps) {
                     console.log('Answer looks insufficient; forcing additional retrieval...');
@@ -329,6 +329,14 @@ Rules:
                         'of any promising page with get_page_content, then answer. Do not repeat prior queries.'
                     ));
                     continue;
+                }
+                // Even when no more retrieval steps remain, do not accept an "insufficient"
+                // verdict if we already gathered context: finalize from the gathered passages
+                // instead of echoing the premature conclusion.
+                if (seemsInsufficient && hasContext) {
+                    console.log('Answer looks insufficient despite gathered context; finalizing from context...');
+                    finalAnswer = null;
+                    break;
                 }
                 finalAnswer = candidate;
                 break;
@@ -378,7 +386,7 @@ Rules:
                 const finalizer = model.bindTools([]);
                 const finalMessages = [
                     ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. If the context is insufficient, state what you found and what is still missing rather than simply saying you have no information.'),
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. The context above was judged relevant to the question, so synthesize the best answer you can from it; only say information is missing for specific sub-parts that are truly absent, never a blanket "I don\'t have enough information".'),
                 ];
                 const last = await withRetry(
                     () => finalizer.invoke(finalMessages),
