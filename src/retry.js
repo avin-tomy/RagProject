@@ -36,6 +36,7 @@ const RETRYABLE_ERROR_PATTERNS = [
     /fetch failed/i,
     /internal server error/i,
     /service unavailable/i,
+    /upstream/i,
     /bad gateway/i,
     /gateway timeout/i,
     /overloaded/i,

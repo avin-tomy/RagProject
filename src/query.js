@@ -220,7 +220,8 @@ export function createChatSession({
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });
-                const parsed = JSON.parse(raw);
+                let parsed = {};
+                try { parsed = JSON.parse(raw); } catch { parsed = {}; }
                 if ((parsed.chunks ?? 0) > 0) {
                     const ctx = parsed.content;
                     const messages = [
@@ -443,7 +444,8 @@ Rules:
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });
-                const parsed = JSON.parse(raw);
+                let parsed = {};
+                try { parsed = JSON.parse(raw); } catch { parsed = {}; }
                 if ((parsed.chunks ?? 0) > 0) {
                     const ctx = parsed.content;
                     console.log(`Using full content of page ${pageNum}.`);
