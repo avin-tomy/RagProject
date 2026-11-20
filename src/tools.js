@@ -60,10 +60,9 @@ export function createSearchTool(vectorStore, { scoreThreshold, defaultTopK = 10
             name: 'search_documents',
             description:
                 'Search the indexed PDF documentation for passages relevant to a query. ' +
-                'Use this for any factual question about the document. You may call it ' +
-                'multiple times with different, focused sub-queries to gather enough ' +
-                'context before answering. Prefer specific standalone search phrases. ' +
-                'Do not repeat the same query; vary phrasing for different aspects. ' +
+                'Use this for any factual question about the document. For complex or relational questions, ' +
+                'decompose into focused sub-queries and call this tool several times (in parallel when independent). ' +
+                'Prefer specific standalone search phrases. Do not repeat the same query; vary phrasing for different aspects. ' +
                 'Do not give up after one search: if results are partial, try broader or differently worded queries, ' +
                 'or fetch the full page with get_page_content. ' +
                 `Available documents: ${docNames}. Pass a "document" param to search a specific one.`,
@@ -170,6 +169,54 @@ export function createCompareDocumentsTool(indexName) {
     );
 }
 
+export function createRelatedEntitiesTool(indexName) {
+    return tool(
+        async ({ entity, relationType }) => {
+            if (!graph.getDriver()) {
+                return JSON.stringify({ error: 'Graph database not configured' });
+            }
+            const name = (entity || '').trim();
+            if (!name) {
+                return JSON.stringify({ error: 'entity is required' });
+            }
+            const cypher = relationType
+                ? `MATCH (a:Entity {indexName:$indexName})-[r:RELATES_TO {type:$relType}]->(b:Entity {indexName:$indexName})
+                   WHERE toLower(a.name) CONTAINS toLower($entity)
+                   RETURN a.name AS from, r.type AS relation, b.name AS to, r.evidence AS evidence
+                   LIMIT 50`
+                : `MATCH (a:Entity {indexName:$indexName})-[r:RELATES_TO]->(b:Entity {indexName:$indexName})
+                   WHERE toLower(a.name) CONTAINS toLower($entity)
+                   RETURN a.name AS from, r.type AS relation, b.name AS to, r.evidence AS evidence
+                   LIMIT 50`;
+            const params = relationType ? { entity: name, relType: relationType } : { entity: name };
+            console.log('Querying related entities for:', name);
+            const relRes = await graph.queryGraph(indexName, cypher, params);
+            const chunksCypher = `MATCH (c:Chunk {indexName:$indexName})-[:MENTIONS]->(e:Entity {indexName:$indexName})
+                                 WHERE toLower(e.name) CONTAINS toLower($entity)
+                                 RETURN c.id AS chunkId, c.page AS page, c.pageEnd AS pageEnd, c.text AS text
+                                 LIMIT 20`;
+            const chunkRes = await graph.queryGraph(indexName, chunksCypher, { entity: name });
+            return JSON.stringify({
+                entity: name,
+                relations: relRes.records || [],
+                chunks: chunkRes.records || [],
+            });
+        },
+        {
+            name: 'get_related_entities',
+            description:
+                'Find entities related to a given entity/concept and the chunks that mention it. ' +
+                'Use for relationship/traversal questions ("what connects to X", "prerequisites of X", ' +
+                '"what builds on X", "how is X related to Y"). Returns related entities with relation ' +
+                'types and evidence, plus the source chunks. Optionally filter by relationType.',
+            schema: z.object({
+                entity: z.string().describe('The entity or concept name to explore'),
+                relationType: z.string().optional().describe('Optional relation type filter (e.g. PREREQUISITE, USES)'),
+            }),
+        }
+    );
+}
+
 export function createPageContentTool(vectorStore, { scoreThreshold, documentFilter = null, documents = [] } = {}) {
     return tool(
         async ({ page, topK, document }) => {
@@ -205,9 +252,9 @@ export function createPageContentTool(vectorStore, { scoreThreshold, documentFil
             name: 'get_page_content',
             description:
                 'Retrieve the full text content of a specific page number from the indexed document. ' +
-                'Use this when the user asks to see, read, or show a specific page, or when you need ' +
-                'the complete text of a page (not just search results). Also use it when search snippets ' +
-                'are fragmented and you need the full page to answer fully. ' +
+                'Use this when the user asks to see, read, or show a specific page, when search snippets ' +
+                'are fragmented, or when a passage references another page/section/table. ' +
+                'Also use it to gather complete context for relational questions that span multiple pages. ' +
                 (documents.length ? `Available documents: ${documents.map((d) => d.name).join(', ')}.` : ''),
             schema: z.object({
                 page: z.number().int().min(1).describe('The page number to retrieve'),

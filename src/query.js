@@ -14,7 +14,7 @@ import {
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_RETRY_BASE_DELAY_MS,
 } from './retry.js';
-import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool } from './tools.js';
+import { createSearchTool, createGraphTool, createDocumentListTool, createCompareDocumentsTool, createPageContentTool, createExtractTablesTool, createCalculatorTool, createRelatedEntitiesTool } from './tools.js';
 import * as graph from './graph.js';
 import { parsePageNumber } from './utils/documentMatcher.js';
 import { pageRange } from './utils/pageRange.js';
@@ -37,6 +37,7 @@ Instructions:
 - Answer using ONLY the information in the context below and the conversation above.
 - If no passage supports any part of the answer, say "I don't have enough information to answer that question."
 - If only part of the answer is available, state what is known and what is missing rather than saying you have no information at all.
+- For multi-part or relational questions, address every sub-part explicitly; do not collapse them into a single vague statement.
 - Cite the page number(s) supporting each claim using the [Page N] labels from the context (e.g., "According to [Page 5]..."). Cite a page for EVERY factual claim, including names, dates, and figures.
 - When multiple documents are present, also cite the source filename for each claim.
 - Be concise and clear.
@@ -63,6 +64,7 @@ Rules:
 - Keep the user's original meaning and intent.
 - Resolve pronouns and references (it, they, this, that, the above, etc.) using the conversation.
 - Preserve document names, named entities, and numeric values exactly.
+- If the follow-up is complex or relational, preserve all of its parts, conditions, and comparisons.
 - If the follow-up is already standalone, return it unchanged.
 - If the follow-up introduces a new, unrelated topic, return it unchanged.
 - If the follow-up says the answer is in the document or asks for more thoroughness, broaden the search query to cover all relevant aspects.
@@ -124,7 +126,7 @@ export function createChatSession({
     agentic = false,
     maxAgentSteps = (Number.isInteger(Number(process.env.AGENTIC_MAX_STEPS)) && Number(process.env.AGENTIC_MAX_STEPS) >= 1)
         ? Number(process.env.AGENTIC_MAX_STEPS)
-        : 5,
+        : 8,
     indexName = null,
     documentFilter = null,
     documents = null,
@@ -177,6 +179,7 @@ export function createChatSession({
     if (agentic && indexName && graph.getDriver()) {
         agentTools.push(createGraphTool(indexName));
         agentTools.push(createCompareDocumentsTool(indexName));
+        agentTools.push(createRelatedEntitiesTool(indexName));
     }
     const toolByName = Object.fromEntries(agentTools.map((t) => [t.name, t]));
     const agentModel = agentic && agentTools.length ? model.bindTools(agentTools) : null;
@@ -208,7 +211,9 @@ export function createChatSession({
 
         // Detect page-specific questions and pre-fetch that page's content.
         const pageNum = parsePageNumber(question);
-        if (pageNum) {
+        const pageRefCount = (String(question).match(/page\s+\w+/gi) || []).length;
+        const isSimplePageQuestion = pageRefCount === 1 && String(question).trim().split(/\s+/).length <= 12;
+        if (pageNum && isSimplePageQuestion) {
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });
@@ -217,7 +222,7 @@ export function createChatSession({
                 if ((parsed.chunks ?? 0) > 0) {
                     const ctx = parsed.content;
                     const messages = [
-                        new SystemMessage('You are a helpful assistant. Answer using only the provided page content. Cite the page number. If the content does not contain the answer, say so.'),
+                        new SystemMessage('You are a helpful assistant. Answer using only the provided page content. Cite the page number. If the content does not contain the answer, say you do not have enough information to answer that question.'),
                         ...chatHistory.slice(-6),
                         new HumanMessage(`Context from page ${pageNum}:\n\n${ctx}\n\nQuestion: ${question}`),
                     ];
@@ -243,41 +248,55 @@ export function createChatSession({
             ? documents.map((d) => `- ${d.name}${d.documentId ? ` (id: ${d.documentId})` : ''}`).join('\n')
             : '(no documents indexed yet — tell the user to upload a PDF first)';
 
-        const AGENTIC_SYSTEM_PROMPT = `You are a helpful assistant answering questions about the provided documentation.
+        const graphAvailable = !!graph.getDriver();
+        const graphSection = graphAvailable
+            ? `\nGraph schema (use with query_graph / get_related_entities):\n` +
+              `  Nodes: Document {indexName,name,pageCount,documentId}; Chunk {indexName,id,text,page,pageEnd,index,documentId}; Entity {indexName,name,type,description}.\n` +
+              `  Edges: (Chunk)-[:PART_OF]->(Document); (Chunk)-[:MENTIONS]->(Entity); (Entity)-[:RELATES_TO {type,documentId,evidence}]->(Entity).\n` +
+              `  Always filter by indexName ($indexName is provided). Example: MATCH (e:Entity {indexName:$indexName})-[:RELATES_TO]->(r) RETURN e.name, type(r), r.name LIMIT 20\n`
+            : '';
+
+        const AGENTIC_SYSTEM_PROMPT = `You are an expert research assistant answering questions about the provided documentation.
 
 Available documents:
 ${docList}
+${graphSection}
+You have tools to gather evidence. You MUST use tools before answering any factual question. Follow this playbook.
 
-Use tools to gather evidence before answering. Follow this workflow:
+A. Understand the question
+   - Identify every sub-question, condition, entity, date, number, and comparison in the user's question.
+   - For relational/complex questions, list the pieces of evidence you will need before searching.
 
-1. Tool need
-   - Greetings/meta/small-talk: answer directly, no tools.
-   - Any factual question: use tools.
+B. Retrieval strategy
+   - Decompose complex or multi-part questions into focused, standalone sub-queries; search each separately.
+   - Parallelize independent sub-queries.
+   - Choose topK per sub-query: 4-6 for a single fact; 8-12 for broader coverage or aggregation; up to 20 only when reading a whole page/section.
+   - Cross-document: list_documents first, then search per document (pass "document").
+   - Specific page: get_page_content.
+   - Tables/slabs/rates/thresholds: extract_tables on that page.
+   - Arithmetic (interest, EMI, percentages, totals, differences): calculate. Never do mental math.
+   - Relationships/traversal/prerequisites/dependencies/how concepts connect: query_graph or get_related_entities (only if graph is available).
+   - Cross-document overlap/common concepts: compare_documents.
+   - If a passage references another page/section/table ("see page X", "as per section Y", "refer table Z"), fetch that target too.
 
-2. Retrieval plan (parallelize independent calls). Search thoroughly before concluding.
-   - search_documents: decompose complex/multi-part questions (including those with multiple conditions, clauses, dates, or named parties) into focused sub-queries and search each separately; choose topK per sub-query based on need (4-6 for simple facts, larger only for broad coverage).
-   - Cross-document: list_documents first, then search per document.
-   - Page text: get_page_content.
-   - Tables/slabs/rates: extract_tables on the relevant page.
-   - Any math: calculate (never mental math).
-   - Relationships/traversal: query_graph (read-only Cypher, always filter by $indexName).
-   - Compare documents: compare_documents.
+C. Iterate before concluding
+   - Do not declare "not enough information" until you have run at least 3 varied searches with different phrasing and fetched full pages of promising results.
+   - After each round, check which sub-questions remain unanswered; run targeted follow-up searches for those only.
+   - If snippets are fragmented, use get_page_content to read the full page.
+   - On empty/error results, try an alternative query or tool, or state the specific limitation.
 
-3. Iterate before concluding
-   - Do not declare "not enough information" until you've run 2-3 varied searches and fetched full pages of promising results.
-   - Refine with different phrasing or get_page_content when snippets are incomplete.
-
-4. Answer
-   - Answer only from retrieved context; if nothing relevant was found, say "I don't have enough information to answer that question."
-   - Cite [Page N] for every factual claim (and filename for multi-doc).
-   - No fabricated facts/values/page numbers.
-   - Be concise and clear.
+D. Synthesize
+   - Answer only from retrieved context.
+   - Address EVERY sub-part of the original question. If a part is truly absent, say exactly which part is missing — never a blanket "I don't have enough information" when some parts were found.
+   - Cite [Page N] for every factual claim; for multi-document, also cite the filename.
+   - Never fabricate facts, values, or page numbers.
+   - Be concise and clear. Preserve numbers, dates, units exactly.
 
 Rules
    - Never call the same tool with the same arguments twice.
-   - Prefer parallel calls for independent sub-queries.
-   - No tools for greetings/meta.
-   - Self-check: every sub-part of the question must be addressed before giving up.
+   - Prefer parallel calls for independent work.
+   - No tools for greetings/meta/small-talk.
+   - Self-check: every sub-part of the question is addressed before giving up.
    - If a search is partial, retry with broader/different wording or fetch the full page.
    - On tool errors/empty results, try an alternative or state the limitation.
    - Once sufficient, stop calling tools and answer.`;
@@ -292,7 +311,7 @@ Rules
             new HumanMessage(question),
         ];
 
-        const isGreeting = /^(hi|hello|hey|thanks|thank you|bye|goodbye|help|ok|okay|sure|yes|no)\b/i.test(question.trim()) && question.trim().split(/\s+/).length <= 4;
+        const isGreeting = isConversational(question);
         const boundModel = isGreeting ? agentModel : model.bindTools(agentTools, { tool_choice: 'required' });
 
         let finalAnswer = null;
@@ -385,7 +404,7 @@ Rules
                 const finalizer = model.bindTools([]);
                 const finalMessages = [
                     ...messages,
-                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. The context above was judged relevant to the question, so synthesize the best answer you can from it; only say information is missing for specific sub-parts that are truly absent, never a blanket "I don\'t have enough information".'),
+                    new HumanMessage('You have gathered enough context above. Now answer the original question based only on those retrieved passages. Do not call any tools. Address every sub-part of the question. Cite a page number for every factual claim, including names, dates, and figures. Use calculate for any arithmetic. The context above was judged relevant to the question, so synthesize the best answer you can from it; only say information is missing for specific sub-parts that are truly absent, never a blanket "I don\'t have enough information".'),
                 ];
                 const last = await withRetry(
                     () => finalizer.invoke(finalMessages),
@@ -455,7 +474,9 @@ Rules
 
         // Detect page-specific questions and pre-fetch that page's content.
         const pageNum = parsePageNumber(question);
-        if (pageNum) {
+        const pageRefCount = (String(question).match(/page\s+\w+/gi) || []).length;
+        const isSimplePageQuestion = pageRefCount === 1 && String(question).trim().split(/\s+/).length <= 12;
+        if (pageNum && isSimplePageQuestion) {
             try {
                 const pageTool = createPageContentTool(vectorStore, { scoreThreshold, documentFilter, documents: documents || [] });
                 const raw = await pageTool.invoke({ page: pageNum });

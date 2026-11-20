@@ -65,8 +65,9 @@ Return a JSON object with this shape:
 The "passages" array must have exactly ${batch.length} objects, one per passage, in order.
 
 Rules:
-- Entity types are free-form (Concept, Person, Equation, Figure, Chapter, etc.).
+- Entity types are free-form (Concept, Person, Equation, Figure, Chapter, Threshold, Date, etc.).
 - Relation types are free-form uppercase labels (DEFINES, USES, PREREQUISITE, etc.).
+- Include important numeric values, dates, thresholds, limits, and identifiers as entities when they are central to a relation.
 - Only extract entities actually present. Do not invent.
 - Keep names concise and consistent.
 - Empty passage => {"entities":[],"relations":[]}.
