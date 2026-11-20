@@ -562,7 +562,7 @@ export async function indexing({ pdfPath, dryRun = false, indexName: indexNameOv
             });
         } catch (err) {
             console.warn('Knowledge graph build failed (vectors are still indexed):', err.message);
-            report('done', 100);
+            report('failed', 100);
         }
     } else {
         report('vectors', 100);

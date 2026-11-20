@@ -2,9 +2,18 @@ import neo4j from 'neo4j-driver';
 
 let driver = null;
 
-export function initGraph(uri, username, password) {
+export async function initGraph(uri, username, password) {
     if (!uri) return null;
-    driver = neo4j.driver(uri, neo4j.auth.basic(username, password));
+    const d = neo4j.driver(uri, neo4j.auth.basic(username, password));
+    try {
+        await d.verifyConnectivity();
+    } catch (err) {
+        console.warn('Neo4j connectivity check failed:', err.message);
+        try { await d.close(); } catch { /* ignore */ }
+        driver = null;
+        return null;
+    }
+    driver = d;
     return driver;
 }
 

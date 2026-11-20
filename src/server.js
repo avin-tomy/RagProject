@@ -95,8 +95,9 @@ try {
 
     if (process.env.NEO4J_URI) {
         try {
-            graph.initGraph(process.env.NEO4J_URI, process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD);
-            const s = graph.getDriver().session();
+            const drv = await graph.initGraph(process.env.NEO4J_URI, process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD);
+            if (!drv) throw new Error('Neo4j connectivity check failed');
+            const s = drv.session();
             await graph.ensureGraphSchema(s);
             await s.close();
             console.log('Connected to Neo4j Aura');
